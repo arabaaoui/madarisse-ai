@@ -1,0 +1,96 @@
+name: CI — madarisse-ai
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Web (Next.js) ─────────────────────────────────────────────────────────
+  web:
+    name: Web — lint + typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeCheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_APP_URL: https://madarisse.com
+        run: npm run build
+
+  # ── Agent (Python) ────────────────────────────────────────────────────────
+  agent:
+    name: Agent — ruff + mypy + pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/agent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install deps
+        run: pip install -r requirements.txt ruff mypy pytest pytest-asyncio pytest-httpx
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: MyPy
+        run: mypy . --ignore-missing-imports --no-strict-optional
+
+      - name: Pytest (unit tests — mocked)
+        run: pytest tests/ -v --tb=short
+        env:
+          SUPABASE_URL: https://test.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: test-key
+          SUPABASE_JWT_SECRET: test-secret
+          AGENT_SERVICE_SECRET: test-secret
+          LITELLM_API_BASE: http://localhost:4000
+          WEB_APP_URL: http://localhost:3000
+
+  # ── Sécurité ─────────────────────────────────────────────────────────────
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    needs: [web, agent]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for secrets in code
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
