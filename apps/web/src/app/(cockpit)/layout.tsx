@@ -8,6 +8,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/cockpit/Sidebar'
 import { AssistantPanel } from '@/components/assistant/AssistantPanel'
+import { Providers } from '@/components/cockpit/Providers'
 
 export default async function CockpitLayout({
   children,
@@ -22,17 +23,19 @@ export default async function CockpitLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Sidebar navigation */}
-      <Sidebar />
+    <Providers>
+      <div className="flex h-screen overflow-hidden">
+        {/* Sidebar navigation */}
+        <Sidebar />
 
-      {/* Zone centrale — module actif */}
-      <main className="flex-1 flex flex-col overflow-auto">
-        {children}
-      </main>
+        {/* Zone centrale — module actif */}
+        <main className="flex-1 flex flex-col overflow-auto">
+          {children}
+        </main>
 
-      {/* Panneau assistant repliable (⌘K) */}
-      <AssistantPanel userId={user.id} />
-    </div>
+        {/* Panneau assistant repliable (⌘K) */}
+        <AssistantPanel userId={user.id} />
+      </div>
+    </Providers>
   )
 }

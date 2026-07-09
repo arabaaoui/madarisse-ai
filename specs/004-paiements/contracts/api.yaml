@@ -1,0 +1,132 @@
+openapi: 3.1.0
+info:
+  title: Paiements API
+  version: 1.0.0
+
+paths:
+  /api/payments:
+    get:
+      summary: État des paiements d'un élève (échéancier + transactions)
+      parameters:
+        - name: student_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudentPaymentState' }
+
+    post:
+      summary: Enregistre un paiement (cockpit — action humaine directe)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentFormData' }
+      responses:
+        201:
+          description: Paiement enregistré
+        400:
+          description: Trop-perçu détecté
+        409:
+          description: Doublon suspect
+
+  /api/payments/{id}:
+    patch:
+      summary: Annule un paiement
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Annulé
+
+  /api/reporting/recovery:
+    get:
+      summary: Taux de recouvrement par classe et/ou mois
+      parameters:
+        - name: class_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: month
+          in: query
+          description: Format YYYY-MM
+          schema: { type: string }
+      responses:
+        200:
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryReport' }
+
+components:
+  schemas:
+    PaymentItem:
+      type: object
+      properties:
+        id: { type: string }
+        itemType: { type: string, enum: [enrollment_fee, schedule] }
+        amount: { type: number }
+        paidAmount: { type: number }
+        remainingAmount: { type: number }
+        status: { type: string, enum: [pending, partial, paid, overdue, cancelled] }
+        dueDate: { type: string, nullable: true }
+        transactions:
+          type: array
+          items: { $ref: '#/components/schemas/PaymentTransaction' }
+        daysOverdue: { type: integer, nullable: true }
+
+    PaymentTransaction:
+      type: object
+      properties:
+        id: { type: string }
+        amount: { type: number }
+        paymentMethod: { type: string, enum: [cash, transfer, check] }
+        transactionDate: { type: string }
+        notes: { type: string, nullable: true }
+
+    StudentPaymentState:
+      type: object
+      properties:
+        studentId: { type: string }
+        studentName: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PaymentItem' }
+        summary:
+          type: object
+          properties:
+            totalDue: { type: number }
+            totalPaid: { type: number }
+            totalOverdue: { type: number }
+            overdueCount: { type: integer }
+
+    PaymentFormData:
+      type: object
+      required: [studentId, paymentItemId, amount, paymentMethod, transactionDate]
+      properties:
+        studentId: { type: string, format: uuid }
+        paymentItemId: { type: string, format: uuid }
+        amount: { type: number, minimum: 0.01 }
+        paymentMethod: { type: string, enum: [cash, transfer, check] }
+        transactionDate: { type: string, format: date }
+        notes: { type: string }
+
+    RecoveryReport:
+      type: object
+      properties:
+        totalDue: { type: number }
+        totalPaid: { type: number }
+        rate: { type: number }
+        overdueCount: { type: integer }
+        overdueStudents:
+          type: array
+          items:
+            type: object
+            properties:
+              studentId: { type: string }
+              studentName: { type: string }
+              amountDue: { type: number }

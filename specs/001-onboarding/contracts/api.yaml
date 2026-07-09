@@ -1,0 +1,386 @@
+openapi: "3.1.0"
+info:
+  title: madarisse-ai Onboarding API
+  version: "1.0.0"
+  description: >
+    Routes for the 001-onboarding feature.
+    All routes require a valid Supabase session cookie.
+    tenant_id is extracted server-side from the session — never passed by the client.
+
+servers:
+  - url: /api
+
+paths:
+  /tenant:
+    get:
+      summary: Get current tenant profile
+      tags: [Tenant]
+      responses:
+        "200":
+          description: Tenant profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Tenant not found
+
+    patch:
+      summary: Update tenant profile
+      tags: [Tenant]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantPayload"
+      responses:
+        "200":
+          description: Updated tenant profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantProfile"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /academic-years:
+    get:
+      summary: List academic years for current tenant
+      tags: [AcademicYears]
+      responses:
+        "200":
+          description: List of academic years
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AcademicYear"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      summary: Create a new academic year
+      tags: [AcademicYears]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAcademicYearPayload"
+      responses:
+        "201":
+          description: Created academic year
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcademicYear"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          description: Year overlap with an existing academic year
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Overlap with existing year 2025-2026 (2025-09-01 → 2026-06-30)"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /academic-years/{id}:
+    patch:
+      summary: Update an academic year (including setting active)
+      tags: [AcademicYears]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAcademicYearPayload"
+      responses:
+        "200":
+          description: Updated academic year
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcademicYear"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Academic year not found or belongs to a different tenant
+        "409":
+          description: Year overlap conflict
+
+  /classes:
+    get:
+      summary: List classes for current tenant
+      tags: [Classes]
+      responses:
+        "200":
+          description: List of classes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClassRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      summary: Create a new class
+      tags: [Classes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClassPayload"
+      responses:
+        "201":
+          description: Created class
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClassRecord"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /classes/{id}:
+    patch:
+      summary: Update a class
+      tags: [Classes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateClassPayload"
+      responses:
+        "200":
+          description: Updated class
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClassRecord"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Class not found or belongs to a different tenant
+
+components:
+  schemas:
+    TenantProfile:
+      type: object
+      required: [id, name, slug]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "École Al-Nour"
+        nameAr:
+          type: string
+          example: "مدرسة النور"
+        address:
+          type: string
+          example: "12 rue des Oliviers, Fès"
+        logoUrl:
+          type: string
+          format: uri
+        slug:
+          type: string
+          example: "ecole-al-nour"
+
+    UpdateTenantPayload:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 2
+        nameAr:
+          type: string
+        address:
+          type: string
+        logoUrl:
+          type: string
+          format: uri
+
+    AcademicYear:
+      type: object
+      required: [id, tenantId, year, startDate, endDate, isActive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        year:
+          type: string
+          example: "2025-2026"
+        startDate:
+          type: string
+          format: date
+          example: "2025-09-01"
+        endDate:
+          type: string
+          format: date
+          example: "2026-06-30"
+        isActive:
+          type: boolean
+
+    CreateAcademicYearPayload:
+      type: object
+      required: [year, startDate, endDate]
+      properties:
+        year:
+          type: string
+          example: "2025-2026"
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        isActive:
+          type: boolean
+          default: true
+
+    UpdateAcademicYearPayload:
+      type: object
+      properties:
+        year:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        isActive:
+          type: boolean
+          description: >
+            Setting to true deactivates all other years for the tenant in the same transaction.
+
+    ClassRecord:
+      type: object
+      required: [id, tenantId, name, enrollmentFee, tuitionFee]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "CE2"
+        nameAr:
+          type: string
+          example: "الثانية ابتدائي"
+        level:
+          type: string
+          example: "primaire"
+        capacity:
+          type: integer
+          minimum: 1
+        enrollmentFee:
+          type: number
+          format: float
+          description: Default enrollment fee in MAD
+        tuitionFee:
+          type: number
+          format: float
+          description: Default monthly tuition fee in MAD
+
+    CreateClassPayload:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        nameAr:
+          type: string
+        level:
+          type: string
+        capacity:
+          type: integer
+          minimum: 1
+        enrollmentFee:
+          type: number
+          default: 0
+        tuitionFee:
+          type: number
+          default: 0
+
+    UpdateClassPayload:
+      type: object
+      properties:
+        name:
+          type: string
+        nameAr:
+          type: string
+        level:
+          type: string
+        capacity:
+          type: integer
+          minimum: 1
+        enrollmentFee:
+          type: number
+        tuitionFee:
+          type: number
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid Supabase session
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "Unauthorized"
+
+    ValidationError:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "startDate must be before endDate"

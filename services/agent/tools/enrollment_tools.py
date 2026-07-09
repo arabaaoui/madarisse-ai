@@ -148,7 +148,72 @@ async def propose_enrollment_create(
     }
 
 
+async def propose_enrollment_validate(
+    enrollment_ids: list[str],
+    ctx: AgentContext,
+) -> dict:
+    """
+    HITL — Propose la validation d'une liste d'inscriptions en attente.
+    Ne valide PAS encore — retourne un action_log_id pour le canvas de confirmation.
+
+    Args:
+        enrollment_ids: Liste d'UUIDs des inscriptions à valider
+        ctx: Contexte agent
+
+    Returns:
+        {"action_log_id": "...", "canvas_type": "enrollment.validate", "preview": {...}}
+    """
+    import structlog
+    log = structlog.get_logger()
+
+    if not enrollment_ids:
+        raise ValueError("enrollment_ids ne peut pas être vide")
+
+    client = get_supabase_client_for_user(ctx.user_jwt)
+
+    # Récupère les détails pour le canvas
+    enrollments_data = client.table("enrollments") \
+        .select("id, students!inner(first_name, last_name), classes!inner(name)") \
+        .in_("id", enrollment_ids) \
+        .eq("tenant_id", ctx.tenant_id) \
+        .execute().data or []
+
+    previews = [
+        {
+            "id": e["id"],
+            "student_name": f"{e['students']['first_name']} {e['students']['last_name']}",
+            "class_name": e["classes"]["name"],
+        }
+        for e in enrollments_data
+    ]
+
+    payload = {
+        "enrollment_ids": enrollment_ids,
+        "count": len(enrollment_ids),
+    }
+
+    action_log_id = await propose_action(
+        action_type="enrollment.validate",
+        payload=payload,
+        snapshot_before={"enrollment_ids": enrollment_ids},
+        agent_id="school-agent/enrollment",
+        ctx=ctx,
+    )
+
+    log.info("enrollment_validate_proposed", count=len(enrollment_ids), tenant_id=ctx.tenant_id)
+
+    return {
+        "action_log_id": action_log_id,
+        "canvas_type": "enrollment.validate",
+        "preview": {
+            "count": len(enrollment_ids),
+            "enrollments": previews,
+        },
+    }
+
+
 # ADK FunctionTools
 search_student_tool = FunctionTool(func=search_student)
 pending_enrollments_tool = FunctionTool(func=get_pending_enrollments)
 propose_enrollment_tool = FunctionTool(func=propose_enrollment_create)
+propose_enrollment_validate_tool = FunctionTool(func=propose_enrollment_validate)

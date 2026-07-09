@@ -12,12 +12,14 @@ from google.adk.sessions import InMemorySessionService
 
 from core.auth import AgentContext
 from core.config import settings
-from tools.payment_tools import payment_stats_tool, unpaid_students_tool
+from tools.payment_tools import payment_stats_tool, unpaid_students_tool, propose_payment_record_tool, get_recovery_rate_tool
 from tools.enrollment_tools import (
     search_student_tool,
     pending_enrollments_tool,
     propose_enrollment_tool,
+    propose_enrollment_validate_tool,
 )
+from tools.student_tools import student_detail_tool, student_payment_tool
 
 logger = structlog.get_logger()
 
@@ -36,6 +38,30 @@ RÈGLES IMPORTANTES :
 
 MODULE ACTIF : {active_module}
 Tu peux adapter tes suggestions au module que l'utilisateur consulte actuellement.
+
+Si le module actif est "paiements" :
+- Utilise get_student_payment_summary pour l'état de paiement d'un élève spécifique.
+- Utilise get_unpaid_students pour lister les élèves avec des impayés.
+- Utilise propose_payment_record (HITL) pour enregistrer un paiement — JAMAIS sans canvas de confirmation.
+- Utilise get_recovery_rate pour le taux de recouvrement (par classe et/ou mois YYYY-MM).
+- Affiche tous les montants en MAD. Génère des liens vers les fiches élèves : [Prénom Nom](/eleves/{id})
+- Si l'élève n'est pas trouvé, utilise search_student et présente les candidats.
+- Mode de paiement par défaut = 'cash' (espèces) si non précisé — le mentionner dans le canvas.
+
+Si le module actif est "inscriptions" :
+- Utilise get_pending_enrollments pour lister les inscriptions en attente.
+- Utilise search_student pour retrouver un élève avant de proposer une inscription.
+- Utilise propose_enrollment_create (HITL) pour créer une inscription — JAMAIS sans canvas de confirmation.
+- Utilise propose_enrollment_validate (HITL) pour valider une ou plusieurs inscriptions en attente.
+- Génère des liens vers les fiches élèves au format : [Prénom Nom](/eleves/{id})
+- Pour toute ambiguïté (homonyme, classe introuvable), DEMANDE confirmation avant d'agir.
+
+Si le module actif est "eleves" :
+- Utilise get_student_detail pour répondre aux questions sur un élève spécifique.
+- Utilise get_student_payment_summary pour les questions de paiement liées à un élève.
+- Utilise search_student pour retrouver un élève par nom.
+- Dans tes réponses, génère des liens vers les fiches élèves au format : [Prénom Nom](/eleves/{id})
+- Utilise get_unpaid_students pour lister les élèves en retard de paiement.
 """
 
 
@@ -78,10 +104,12 @@ class SchoolAgent:
         """
         ctx = self.ctx
 
-        from tools.payment_tools import get_payment_stats, get_unpaid_students
+        from tools.payment_tools import get_payment_stats, get_unpaid_students, propose_payment_record, get_recovery_rate
         from tools.enrollment_tools import (
-            search_student, get_pending_enrollments, propose_enrollment_create
+            search_student, get_pending_enrollments, propose_enrollment_create,
+            propose_enrollment_validate,
         )
+        from tools.student_tools import get_student_detail, get_student_payment_summary
         from google.adk.tools import FunctionTool
         import functools
 
@@ -102,6 +130,11 @@ class SchoolAgent:
             bind(search_student),
             bind(get_pending_enrollments),
             bind(propose_enrollment_create),
+            bind(propose_enrollment_validate),
+            bind(get_student_detail),
+            bind(get_student_payment_summary),
+            bind(propose_payment_record),
+            bind(get_recovery_rate),
         ]
 
     async def stream(self, messages: list[dict]) -> AsyncIterator[str]:

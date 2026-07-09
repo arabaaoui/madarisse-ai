@@ -153,24 +153,109 @@ async def _execute_enrollment_create(payload: dict, user_client, ctx: AgentConte
 
 
 async def _execute_enrollment_validate(payload: dict, user_client, ctx: AgentContext) -> dict:
-    """Valide une inscription (status → confirmed)."""
+    """Valide une inscription (status → confirmed) et génère l'échéancier."""
+    from datetime import date
+    from dateutil.relativedelta import relativedelta
+
+    SCHEDULE_MONTHS = 10
     enrollment_ids = payload["enrollment_ids"]
+
+    # Récupère les inscriptions pour générer les échéanciers
+    enrollments = user_client.table("enrollments") \
+        .select("id, student_id, enrollment_fee, tuition_fee") \
+        .in_("id", enrollment_ids) \
+        .eq("tenant_id", ctx.tenant_id) \
+        .execute().data or []
+
     result = user_client.table("enrollments").update({"status": "confirmed"}) \
         .in_("id", enrollment_ids) \
         .eq("tenant_id", ctx.tenant_id) \
         .execute()
-    return {"validated_count": len(result.data or [])}
+
+    # Génère les payment_items pour chaque inscription validée
+    today = date.today()
+    items = []
+    for e in enrollments:
+        if (e.get("enrollment_fee") or 0) > 0:
+            items.append({
+                "tenant_id": ctx.tenant_id,
+                "student_id": e["student_id"],
+                "enrollment_id": e["id"],
+                "item_type": "enrollment_fee",
+                "amount": e["enrollment_fee"],
+                "paid_amount": 0,
+                "remaining_amount": e["enrollment_fee"],
+                "status": "pending",
+                "due_date": today.isoformat(),
+            })
+        if (e.get("tuition_fee") or 0) > 0:
+            for i in range(1, SCHEDULE_MONTHS + 1):
+                due = (today + relativedelta(months=i)).replace(day=1)
+                items.append({
+                    "tenant_id": ctx.tenant_id,
+                    "student_id": e["student_id"],
+                    "enrollment_id": e["id"],
+                    "item_type": "schedule",
+                    "amount": e["tuition_fee"],
+                    "paid_amount": 0,
+                    "remaining_amount": e["tuition_fee"],
+                    "status": "pending",
+                    "due_date": due.isoformat(),
+                })
+
+    if items:
+        user_client.table("payment_items").insert(items).execute()
+        logger.info("payment_schedule_generated", count=len(items), tenant_id=ctx.tenant_id)
+
+    return {"validated_count": len(result.data or []), "schedule_items_created": len(items)}
 
 
 async def _execute_payment_record(payload: dict, user_client, ctx: AgentContext) -> dict:
-    """Enregistre un paiement."""
-    result = user_client.table("accounting_transactions").insert({
+    """Enregistre un paiement et met à jour l'échéance imputée."""
+    from datetime import date
+
+    amount = payload["amount"]
+    payment_item_id = payload.get("payment_item_id")
+
+    # Insert de la transaction
+    tx_result = user_client.table("accounting_transactions").insert({
         "tenant_id": ctx.tenant_id,
         "student_id": payload["student_id"],
-        "amount": payload["amount"],
+        "amount": amount,
         "payment_method": payload.get("payment_method", "cash"),
-        "transaction_date": payload.get("transaction_date"),
-        "payment_item_id": payload.get("payment_item_id"),
+        "transaction_date": payload.get("transaction_date") or date.today().isoformat(),
+        "payment_item_id": payment_item_id,
         "notes": payload.get("notes"),
     }).execute()
-    return result.data[0] if result.data else {}
+
+    transaction = tx_result.data[0] if tx_result.data else {}
+
+    # Met à jour l'échéance imputée
+    if payment_item_id:
+        item = user_client.table("payment_items") \
+            .select("amount, paid_amount") \
+            .eq("id", payment_item_id) \
+            .eq("tenant_id", ctx.tenant_id) \
+            .single().execute().data
+
+        if item:
+            new_paid = round((item["paid_amount"] or 0) + amount, 2)
+            new_remaining = round(item["amount"] - new_paid, 2)
+            if new_remaining <= 0:
+                new_status = "paid"
+                new_remaining = 0
+            elif new_paid > 0:
+                new_status = "partial"
+            else:
+                new_status = "pending"
+
+            user_client.table("payment_items").update({
+                "paid_amount": new_paid,
+                "remaining_amount": new_remaining,
+                "status": new_status,
+            }).eq("id", payment_item_id).execute()
+
+            logger.info("payment_item_updated", payment_item_id=payment_item_id,
+                        new_status=new_status, tenant_id=ctx.tenant_id)
+
+    return transaction

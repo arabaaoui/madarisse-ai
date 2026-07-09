@@ -2,43 +2,48 @@
 
 /**
  * Panneau assistant repliable — ⌘K pour ouvrir/fermer.
- * Utilise Vercel AI SDK useChat() pour le streaming.
+ * Utilise Vercel AI SDK v6 useChat() pour le streaming.
  * Affiche les canvas (generative UI) dans le fil de conversation.
  */
 
-import { useState, useEffect, useRef } from 'react'
-import { useChat } from 'ai/react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { useChat } from '@ai-sdk/react'
+import { DefaultChatTransport, type UIMessage } from 'ai'
 import { usePathname } from 'next/navigation'
+import Link from 'next/link'
 import { MessageSquare, X, Loader2, Send } from 'lucide-react'
 
 interface Props {
   userId: string
 }
 
-export function AssistantPanel({ userId }: Props) {
+const WELCOME_MESSAGE: UIMessage = {
+  id: 'welcome',
+  role: 'assistant',
+  parts: [{ type: 'text', text: `Bonjour ! Je suis votre assistant Madarisse. Je peux vous aider à gérer votre école — inscriptions, paiements, reporting et plus encore.\n\nEssayez par exemple :\n• "Quels élèves ont des impayés ?"\n• "Inscris Yassine en 6ème A"\n• "Quel est le taux de recouvrement ce mois ?"` }],
+  metadata: undefined,
+}
+
+export function AssistantPanel({ userId: _userId }: Props) {
   const [open, setOpen] = useState(false)
+  const [input, setInput] = useState('')
   const pathname = usePathname()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Détermine le module actif depuis l'URL
   const activeModule = pathname.split('/')[1] || 'dashboard'
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
-    api: '/api/agent/chat',
-    body: { active_module: activeModule },
-    initialMessages: [
-      {
-        id: 'welcome',
-        role: 'assistant',
-        content: `Bonjour ! Je suis votre assistant Madarisse. Je peux vous aider à gérer votre école — inscriptions, paiements, reporting et plus encore.
+  const transport = useMemo(
+    () => new DefaultChatTransport({ api: '/api/agent/chat', body: { active_module: activeModule } }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
-Essayez par exemple :
-• "Quels élèves ont des impayés ?"
-• "Inscris Yassine en 6ème A"
-• "Quel est le taux de recouvrement ce mois ?"`,
-      },
-    ],
+  const { messages, sendMessage, status } = useChat({
+    transport,
+    messages: [WELCOME_MESSAGE],
   })
+
+  const isLoading = status === 'submitted' || status === 'streaming'
 
   // ⌘K / Ctrl+K pour ouvrir/fermer
   useEffect(() => {
@@ -56,6 +61,14 @@ Essayez par exemple :
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const text = input.trim()
+    if (!text || isLoading) return
+    setInput('')
+    sendMessage({ text })
+  }
 
   if (!open) {
     return (
@@ -90,31 +103,33 @@ Essayez par exemple :
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className={`
-                max-w-[85%] rounded-lg px-3 py-2 text-sm
-                ${msg.role === 'user'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-foreground'
-                }
-              `}
-            >
-              {/* Message texte */}
-              <p className="whitespace-pre-wrap">{msg.content}</p>
+        {messages.map((msg: UIMessage) => {
+          const textParts = msg.parts.filter((p) => p.type === 'text')
+          const toolParts = msg.parts.filter((p) => p.type === 'tool-invocation')
+          const content = textParts.map((p) => (p as { type: 'text'; text: string }).text).join('')
 
-              {/* Canvas generative UI — rendu si l'assistant propose une action */}
-              {/* Les canvas sont injectés via toolInvocations en Phase 1 */}
-              {msg.role === 'assistant' && msg.toolInvocations?.map((tool) => (
-                <ActionCanvas key={tool.toolCallId} invocation={tool} />
-              ))}
+          return (
+            <div
+              key={msg.id}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`
+                  max-w-[85%] rounded-lg px-3 py-2 text-sm
+                  ${msg.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-foreground'
+                  }
+                `}
+              >
+                {content && <MessageContent content={content} />}
+                {msg.role === 'assistant' && toolParts.map((tool, i) => (
+                  <ActionCanvas key={i} invocation={tool} />
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
 
         {isLoading && (
           <div className="flex justify-start">
@@ -134,7 +149,7 @@ Essayez par exemple :
       >
         <input
           value={input}
-          onChange={handleInputChange}
+          onChange={(e) => setInput(e.target.value)}
           placeholder="Posez une question ou déléguez une tâche…"
           disabled={isLoading}
           className="flex-1 text-sm bg-muted rounded-md px-3 py-2 outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground disabled:opacity-50"
@@ -152,30 +167,63 @@ Essayez par exemple :
 }
 
 /**
+ * Rend le contenu d'un message en parsant les liens markdown [texte](url).
+ * Les liens internes (/eleves/...) sont rendus avec Next.js Link.
+ */
+function MessageContent({ content }: { content: string }) {
+  const MD_LINK = /\[([^\]]+)\]\(([^)]+)\)/g
+  const parts: React.ReactNode[] = []
+  let last = 0
+  let match: RegExpExecArray | null
+
+  while ((match = MD_LINK.exec(content)) !== null) {
+    if (match.index > last) {
+      parts.push(<span key={last}>{content.slice(last, match.index)}</span>)
+    }
+    const [, text, href] = match
+    const isInternal = href.startsWith('/')
+    parts.push(
+      isInternal
+        ? <Link key={match.index} href={href} className="underline font-medium hover:opacity-80">{text}</Link>
+        : <a key={match.index} href={href} target="_blank" rel="noopener noreferrer" className="underline font-medium hover:opacity-80">{text}</a>
+    )
+    last = match.index + match[0].length
+  }
+
+  if (last < content.length) {
+    parts.push(<span key={last}>{content.slice(last)}</span>)
+  }
+
+  return <p className="whitespace-pre-wrap">{parts.length > 0 ? parts : content}</p>
+}
+
+/**
  * Canvas — composant de confirmation d'action HITL.
  * Affiché dans le fil quand l'agent propose une action qui demande validation.
  */
 function ActionCanvas({ invocation }: { invocation: any }) {
-  const [status, setStatus] = useState<'pending' | 'confirmed' | 'cancelled'>('pending')
+  const [actionStatus, setActionStatus] = useState<'pending' | 'confirmed' | 'cancelled'>('pending')
   const [loading, setLoading] = useState(false)
 
-  if (!invocation.result?.action_log_id) return null
-  if (status !== 'pending') return (
-    <div className={`mt-2 text-xs rounded p-2 ${status === 'confirmed' ? 'bg-green-100 text-green-800' : 'bg-muted text-muted-foreground'}`}>
-      {status === 'confirmed' ? '✅ Action exécutée' : '✗ Annulée'}
+  const result = invocation?.toolInvocation?.result ?? invocation?.result
+  if (!result?.action_log_id) return null
+
+  if (actionStatus !== 'pending') return (
+    <div className={`mt-2 text-xs rounded p-2 ${actionStatus === 'confirmed' ? 'bg-green-100 text-green-800' : 'bg-muted text-muted-foreground'}`}>
+      {actionStatus === 'confirmed' ? '✅ Action exécutée' : '✗ Annulée'}
     </div>
   )
 
-  const preview = invocation.result.preview || {}
+  const preview = result.preview || {}
 
   const handleConfirm = async () => {
     setLoading(true)
     const res = await fetch('/api/agent/action/confirm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action_log_id: invocation.result.action_log_id }),
+      body: JSON.stringify({ action_log_id: result.action_log_id }),
     })
-    if (res.ok) setStatus('confirmed')
+    if (res.ok) setActionStatus('confirmed')
     setLoading(false)
   }
 
@@ -184,9 +232,9 @@ function ActionCanvas({ invocation }: { invocation: any }) {
     await fetch('/api/agent/action/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action_log_id: invocation.result.action_log_id }),
+      body: JSON.stringify({ action_log_id: result.action_log_id }),
     })
-    setStatus('cancelled')
+    setActionStatus('cancelled')
     setLoading(false)
   }
 

@@ -1,0 +1,317 @@
+openapi: "3.1.0"
+info:
+  title: "madarisse-ai — Module Élèves API"
+  version: "1.0.0"
+  description: >
+    Endpoints du module Élèves : gestion des dossiers, recherche, fiche 360°.
+    Tous les endpoints sont des routes Next.js App Router (app/api/) ou des
+    appels Supabase directs depuis les Server Components.
+    L'isolation tenant est garantie par RLS Supabase (JWT utilisateur).
+
+servers:
+  - url: "/api"
+    description: "BFF Next.js (app/api/)"
+
+tags:
+  - name: students
+    description: Gestion des dossiers élèves
+
+paths:
+
+  /students:
+    get:
+      tags: [students]
+      summary: Liste paginée des élèves du tenant
+      description: >
+        Retourne la liste des élèves triée alphabétiquement.
+        Filtres optionnels : classe, statut, recherche textuelle.
+        Isolation tenant via RLS (JWT).
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string, minLength: 2 }
+          description: "Recherche partielle FR/AR sur prénom ou nom"
+        - name: class_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, active, inactive]
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: after
+          in: query
+          schema: { type: string, format: uuid }
+          description: "Cursor pour pagination keyset (id du dernier élément reçu)"
+      responses:
+        "200":
+          description: Liste paginée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/StudentListItem" }
+                  hasMore: { type: boolean }
+                  nextCursor: { type: string, format: uuid, nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      tags: [students]
+      summary: Créer un dossier élève
+      description: >
+        Crée un nouvel élève dans le tenant de l'utilisateur authentifié.
+        Écriture directe (pas de HITL) — la création d'élève est une saisie
+        administrative standard non sensible.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StudentFormData" }
+      responses:
+        "201":
+          description: Élève créé
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentListItem" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: Conflit (doublon détecté)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /students/{id}:
+    get:
+      tags: [students]
+      summary: Fiche 360° d'un élève
+      description: >
+        Retourne les données consolidées d'un élève : informations personnelles,
+        classe active, inscription en cours, résumé des paiements, statut.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Fiche 360°
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Student360" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    patch:
+      tags: [students]
+      summary: Modifier un dossier élève
+      description: Mise à jour partielle des champs du dossier (PATCH sémantique).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StudentPatchData" }
+      responses:
+        "200":
+          description: Dossier mis à jour
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentListItem" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    delete:
+      tags: [students]
+      summary: Désactiver un élève
+      description: >
+        Passe le statut de l'élève à "inactive". La suppression physique
+        est bloquée si une inscription active existe.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Désactivé }
+        "409":
+          description: Inscription active — suppression bloquée
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /students/search:
+    get:
+      tags: [students]
+      summary: Recherche temps réel d'élèves
+      description: >
+        Endpoint optimisé pour l'autocomplétion — retourne un maximum de 10
+        résultats avec les champs minimaux nécessaires.
+        Utilisé par la barre de recherche cockpit et les tools agent.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 2 }
+      responses:
+        "200":
+          description: Résultats de recherche (max 10)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StudentSearchResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  schemas:
+
+    StudentListItem:
+      type: object
+      required: [id, firstName, lastName, annualStatus]
+      properties:
+        id: { type: string, format: uuid }
+        firstName: { type: string }
+        lastName: { type: string }
+        firstNameAr: { type: string, nullable: true }
+        lastNameAr: { type: string, nullable: true }
+        annualStatus:
+          type: string
+          enum: [pending, active, inactive]
+        className: { type: string, nullable: true }
+        classId: { type: string, format: uuid, nullable: true }
+        phone: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+
+    StudentSearchResult:
+      type: object
+      required: [id, name, annualStatus]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, description: "Prénom + Nom concaténés" }
+        className: { type: string, nullable: true }
+        annualStatus: { type: string, enum: [pending, active, inactive] }
+
+    StudentFormData:
+      type: object
+      required: [firstName, lastName, dateOfBirth, gender]
+      properties:
+        firstName: { type: string, minLength: 1 }
+        lastName: { type: string, minLength: 1 }
+        firstNameAr: { type: string, nullable: true }
+        lastNameAr: { type: string, nullable: true }
+        dateOfBirth: { type: string, format: date }
+        gender: { type: string, enum: [M, F] }
+        classId: { type: string, format: uuid, nullable: true }
+        parentName: { type: string, nullable: true }
+        parentPhone: { type: string, nullable: true }
+        parentEmail: { type: string, format: email, nullable: true }
+
+    StudentPatchData:
+      type: object
+      description: Tous les champs sont optionnels (PATCH sémantique)
+      properties:
+        firstName: { type: string }
+        lastName: { type: string }
+        firstNameAr: { type: string, nullable: true }
+        lastNameAr: { type: string, nullable: true }
+        dateOfBirth: { type: string, format: date }
+        gender: { type: string, enum: [M, F] }
+        classId: { type: string, format: uuid, nullable: true }
+        parentName: { type: string, nullable: true }
+        parentPhone: { type: string, nullable: true }
+        parentEmail: { type: string, format: email, nullable: true }
+
+    Student360:
+      type: object
+      required: [id, firstName, lastName, dateOfBirth, gender, annualStatus]
+      properties:
+        id: { type: string, format: uuid }
+        firstName: { type: string }
+        lastName: { type: string }
+        firstNameAr: { type: string, nullable: true }
+        lastNameAr: { type: string, nullable: true }
+        dateOfBirth: { type: string, format: date }
+        gender: { type: string, enum: [M, F] }
+        annualStatus: { type: string, enum: [pending, active, inactive] }
+        photo: { type: string, format: uri, nullable: true }
+        parentName: { type: string, nullable: true }
+        parentPhone: { type: string, nullable: true }
+        parentEmail: { type: string, format: email, nullable: true }
+        class:
+          nullable: true
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            nameAr: { type: string, nullable: true }
+        enrollment:
+          nullable: true
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            status: { type: string, enum: [pending, confirmed, cancelled] }
+            enrollmentFee: { type: number }
+            tuitionFee: { type: number }
+            academicYear: { type: string }
+        paymentSummary:
+          nullable: true
+          type: object
+          properties:
+            totalDue: { type: number, description: "Montant total attendu (MAD)" }
+            totalPaid: { type: number, description: "Montant encaissé (MAD)" }
+            totalOverdue: { type: number, description: "Montant en retard (MAD)" }
+            overdueCount: { type: integer }
+            nextDueDate: { type: string, format: date, nullable: true }
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
+
+    ValidationError:
+      type: object
+      required: [error, fields]
+      properties:
+        error: { type: string, example: "VALIDATION_ERROR" }
+        fields:
+          type: object
+          additionalProperties: { type: string }
+
+  responses:
+    Unauthorized:
+      description: Non authentifié
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Accès refusé (cross-tenant)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Ressource introuvable
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Données invalides
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ValidationError" }

@@ -65,3 +65,18 @@ infra/coolify/*.secret
 
 # Turbo
 .turbo/
+
+# Claude Code / local tooling
+.claude/
+
+# Speckit internal (scripts/templates copiés depuis un autre projet)
+.specify/scripts/
+.specify/templates/
+.specify/memory/
+
+# Python virtual envs (patterns complémentaires)
+.venv-*/
+*.venv/
+
+# package-lock (on utilise bun/npm selon l'environnement)
+apps/web/package-lock.json

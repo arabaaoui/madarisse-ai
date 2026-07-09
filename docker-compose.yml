@@ -1,0 +1,79 @@
+version: '3.9'
+
+# ── madarisse-ai — stack Coolify ─────────────────────────────────────────────
+# Déploiement via Coolify : Docker Compose, context = racine du repo.
+# Toutes les variables d'environnement sont définies dans Coolify dashboard.
+
+services:
+
+  # ── Front Next.js ───────────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      AGENT_SERVICE_URL: http://agent:8001
+      AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET}
+    depends_on:
+      - agent
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Agent FastAPI + ADK ─────────────────────────────────────────────────────
+  agent:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.agent
+    expose:
+      - "8001"
+    environment:
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET}
+      LITELLM_API_BASE: http://litellm:4000
+      WEB_APP_URL: ${NEXT_PUBLIC_APP_URL}
+    depends_on:
+      - litellm
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── LiteLLM proxy ──────────────────────────────────────────────────────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    expose:
+      - "4000"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - ./infra/compose/litellm_config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    restart: unless-stopped
+
+networks:
+  default:
+    name: madarisse-ai

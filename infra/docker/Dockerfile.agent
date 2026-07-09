@@ -5,15 +5,19 @@ WORKDIR /app
 
 # System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    build-essential curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.cargo/bin:$PATH"
 
 # Utilisateur non-root
 RUN useradd --create-home --shell /bin/bash agent
 
-# Python deps
+# Python deps via uv
 COPY services/agent/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # Source
 COPY services/agent/ .

@@ -1,0 +1,241 @@
+openapi: 3.1.0
+info:
+  title: Inscriptions API
+  version: 1.0.0
+  description: Endpoints cockpit pour la gestion des inscriptions (003-inscriptions)
+
+paths:
+  /api/enrollments:
+    get:
+      summary: Liste les inscriptions (filtrable par status)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, confirmed, cancelled]
+        - name: class_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: academic_year_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        200:
+          description: Liste des inscriptions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EnrollmentListItem'
+                  hasMore:
+                    type: boolean
+
+    post:
+      summary: Crée une inscription (status=pending)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentFormData'
+      responses:
+        201:
+          description: Inscription créée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentListItem'
+        409:
+          description: Inscription existante pour cet élève cette année
+
+  /api/enrollments/{id}:
+    get:
+      summary: Détail d'une inscription
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Inscription
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentListItem'
+        404:
+          description: Non trouvée
+
+    patch:
+      summary: Valide ou annule une inscription (validation unitaire)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [confirmed, cancelled]
+      responses:
+        200:
+          description: Inscription mise à jour (échéancier généré si confirmed)
+        409:
+          description: Transition de statut invalide
+
+  /api/enrollments/validate-batch:
+    post:
+      summary: Valide plusieurs inscriptions en masse (cockpit direct — pas HITL)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+      responses:
+        200:
+          description: Résultat de la validation en masse
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  validated:
+                    type: integer
+                  skipped:
+                    type: integer
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        reason:
+                          type: string
+
+  /api/classes:
+    get:
+      summary: Liste les classes du tenant (pour selects)
+      responses:
+        200:
+          description: Classes disponibles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClassOption'
+
+  /api/academic-years:
+    get:
+      summary: Liste les années scolaires du tenant (pour selects)
+      responses:
+        200:
+          description: Années scolaires
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AcademicYearOption'
+
+components:
+  schemas:
+    EnrollmentListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        studentId:
+          type: string
+          format: uuid
+        studentName:
+          type: string
+        className:
+          type: string
+        academicYear:
+          type: string
+        enrollmentFee:
+          type: number
+        tuitionFee:
+          type: number
+        status:
+          type: string
+          enum: [pending, confirmed, cancelled]
+        createdAt:
+          type: string
+          format: date-time
+
+    EnrollmentFormData:
+      type: object
+      required: [studentId, classId, academicYearId, enrollmentFee, tuitionFee]
+      properties:
+        studentId:
+          type: string
+          format: uuid
+        classId:
+          type: string
+          format: uuid
+        academicYearId:
+          type: string
+          format: uuid
+        enrollmentFee:
+          type: number
+          minimum: 0
+        tuitionFee:
+          type: number
+          minimum: 0
+
+    ClassOption:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        nameAr:
+          type: string
+
+    AcademicYearOption:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        year:
+          type: string
