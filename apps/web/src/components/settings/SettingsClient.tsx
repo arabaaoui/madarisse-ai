@@ -6,14 +6,20 @@ import { toast } from 'sonner'
 import { Plus, Trash2, Edit, X, Loader2 } from 'lucide-react'
 import { inp, btn, btnGhost, Field, Spinner } from './shared'
 
-import SchoolTab from './tabs/SchoolTab'
-import AcademicYearsTab from './tabs/AcademicYearsTab'
-import SemestresTab from './tabs/SemestresTab'
-import ClassesTab from './tabs/ClassesTab'
-import UnitesTab from './tabs/UnitesTab'
-import MatieresTab from './tabs/MatieresTab'
-import SubjectClassMatrixTab from './tabs/SubjectClassMatrixTab'
-import EnseignantsTab from './tabs/EnseignantsTab'
+import dynamic from 'next/dynamic'
+
+const SchoolTab         = dynamic(() => import('./tabs/SchoolTab'),            { ssr: false, loading: () => <TabLoader /> })
+const AcademicYearsTab  = dynamic(() => import('./tabs/AcademicYearsTab'),     { ssr: false, loading: () => <TabLoader /> })
+const SemestresTab      = dynamic(() => import('./tabs/SemestresTab'),         { ssr: false, loading: () => <TabLoader /> })
+const ClassesTab        = dynamic(() => import('./tabs/ClassesTab'),           { ssr: false, loading: () => <TabLoader /> })
+const UnitesTab         = dynamic(() => import('./tabs/UnitesTab'),            { ssr: false, loading: () => <TabLoader /> })
+const MatieresTab       = dynamic(() => import('./tabs/MatieresTab'),          { ssr: false, loading: () => <TabLoader /> })
+const SubjectClassMatrixTab = dynamic(() => import('./tabs/SubjectClassMatrixTab'), { ssr: false, loading: () => <TabLoader /> })
+const EnseignantsTab    = dynamic(() => import('./tabs/EnseignantsTab'),       { ssr: false, loading: () => <TabLoader /> })
+
+function TabLoader() {
+  return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-gray-300" /></div>
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface AccCategory {
