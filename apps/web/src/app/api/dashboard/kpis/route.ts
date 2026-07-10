@@ -13,7 +13,7 @@ export async function GET() {
   const today = new Date().toISOString().slice(0, 10)
   const thisMonth = today.slice(0, 7)
 
-  const [studentsRes, pendingRes, paymentRes] = await Promise.all([
+  const [studentsRes, pendingRes, paymentRes, revenueRes, expenseRes] = await Promise.all([
     // Total confirmed enrollments (= active students this year)
     supabase
       .from('enrollments')
@@ -37,6 +37,24 @@ export async function GET() {
       .neq('status', 'cancelled')
       .gte('due_date', `${thisMonth}-01`)
       .lt('due_date', nextMonthStart(thisMonth)),
+
+    // Total revenue this month (paid payment_items by payment_date)
+    supabase
+      .from('payment_items')
+      .select('paid_amount')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'paid')
+      .gte('payment_date', `${thisMonth}-01`)
+      .lt('payment_date', nextMonthStart(thisMonth)),
+
+    // Total expenses this month
+    supabase
+      .from('accounting_transactions')
+      .select('amount')
+      .eq('tenant_id', tenantId)
+      .eq('transaction_type', 'expense')
+      .gte('transaction_date', `${thisMonth}-01`)
+      .lt('transaction_date', nextMonthStart(thisMonth)),
   ])
 
   const items = paymentRes.data ?? []
@@ -44,11 +62,20 @@ export async function GET() {
   const totalPaid = items.reduce((s, i) => s + (i.paid_amount ?? 0), 0)
   const recoveryRate = totalDue > 0 ? Math.round((totalPaid / totalDue) * 1000) / 10 : null
 
+  const totalRevenueThisMonth = Math.round(
+    (revenueRes.data ?? []).reduce((s, i) => s + (i.paid_amount ?? 0), 0)
+  )
+  const totalExpensesThisMonth = Math.round(
+    (expenseRes.data ?? []).reduce((s, i) => s + (i.amount ?? 0), 0)
+  )
+
   return NextResponse.json({
     confirmedEnrollments: studentsRes.count ?? 0,
     pendingEnrollments: pendingRes.count ?? 0,
     recoveryRate,
     recoveryMonth: thisMonth,
+    totalRevenueThisMonth,
+    totalExpensesThisMonth,
   })
 }
 

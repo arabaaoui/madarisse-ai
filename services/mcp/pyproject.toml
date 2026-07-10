@@ -1,0 +1,13 @@
+[project]
+name = "madarisse-mcp"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=0.1",
+    "supabase>=2.0",
+    "pydantic-settings>=2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
