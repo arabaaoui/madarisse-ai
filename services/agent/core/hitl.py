@@ -139,17 +139,46 @@ async def _dispatch_action(action_type: str, payload: dict, user_client, ctx: Ag
 
 
 async def _execute_enrollment_create(payload: dict, user_client, ctx: AgentContext) -> dict:
-    """Crée une inscription via Supabase (avec RLS user)."""
-    result = user_client.table("enrollments").insert({
+    """
+    Crée l'élève (annual_status=pending) puis l'inscription (status=pending).
+    L'élève passe 'confirmed' au premier paiement d'inscription validé.
+    """
+    # 1. Crée l'élève avec statut en attente
+    student_insert: dict = {
         "tenant_id": ctx.tenant_id,
-        "student_id": payload["student_id"],
+        "first_name": payload["first_name"],
+        "last_name": payload["last_name"],
+        "annual_status": "pending",
+        "class_id": payload["class_id"],
+        "academic_year_id": payload["academic_year_id"],
+    }
+    for optional in ("first_name_ar", "last_name_ar", "gender", "parent_name", "phone"):
+        if payload.get(optional):
+            student_insert[optional] = payload[optional]
+    if payload.get("date_of_birth"):
+        student_insert["date_of_birth"] = payload["date_of_birth"]
+
+    student_result = user_client.table("students").insert(student_insert).execute()
+    if not student_result.data:
+        raise RuntimeError("Échec création de l'élève")
+    student = student_result.data[0]
+
+    # 2. Crée l'inscription liée à l'élève
+    enrollment_result = user_client.table("enrollments").insert({
+        "tenant_id": ctx.tenant_id,
+        "student_id": student["id"],
         "class_id": payload["class_id"],
         "academic_year_id": payload["academic_year_id"],
         "enrollment_fee": payload.get("enrollment_fee", 0),
         "tuition_fee": payload.get("tuition_fee", 0),
         "status": "pending",
+        "enrollment_type": "new",
     }).execute()
-    return result.data[0] if result.data else {}
+
+    enrollment = enrollment_result.data[0] if enrollment_result.data else {}
+    logger.info("enrollment_created", student_id=student["id"], enrollment_id=enrollment.get("id"),
+                tenant_id=ctx.tenant_id)
+    return {"student": student, "enrollment": enrollment}
 
 
 async def _execute_enrollment_validate(payload: dict, user_client, ctx: AgentContext) -> dict:
@@ -233,7 +262,7 @@ async def _execute_payment_record(payload: dict, user_client, ctx: AgentContext)
     # Met à jour l'échéance imputée
     if payment_item_id:
         item = user_client.table("payment_items") \
-            .select("amount, paid_amount") \
+            .select("amount, paid_amount, item_type, student_id") \
             .eq("id", payment_item_id) \
             .eq("tenant_id", ctx.tenant_id) \
             .single().execute().data
@@ -257,5 +286,16 @@ async def _execute_payment_record(payload: dict, user_client, ctx: AgentContext)
 
             logger.info("payment_item_updated", payment_item_id=payment_item_id,
                         new_status=new_status, tenant_id=ctx.tenant_id)
+
+            # Premier paiement de frais d'inscription → élève devient confirmed
+            if new_status == "paid" and item.get("item_type") == "enrollment_fee":
+                student_id = item.get("student_id") or payload.get("student_id")
+                if student_id:
+                    user_client.table("students").update({"annual_status": "confirmed"}) \
+                        .eq("id", student_id) \
+                        .eq("tenant_id", ctx.tenant_id) \
+                        .eq("annual_status", "pending") \
+                        .execute()
+                    logger.info("student_activated", student_id=student_id, tenant_id=ctx.tenant_id)
 
     return transaction

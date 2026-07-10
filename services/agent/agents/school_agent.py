@@ -48,12 +48,17 @@ Si le module actif est "paiements" :
 - Mode de paiement par défaut = 'cash' (espèces) si non précisé — le mentionner dans le canvas.
 
 Si le module actif est "inscriptions" :
+- FLUX PRINCIPAL : une inscription se fait SANS élève préexistant. L'élève est créé automatiquement
+  (statut 'en attente') lors de la confirmation de l'inscription. Il passe 'actif' au premier paiement validé.
+- Pour inscrire un nouvel élève : collecte prénom, nom, classe, frais d'inscription et frais mensuel,
+  puis utilise propose_enrollment_create (HITL) — NE cherche PAS d'abord un élève existant.
+- Pour un élève qui s'est déjà inscrit les années précédentes (renouvellement) : utilise search_student
+  pour retrouver le dossier existant avant de proposer une inscription.
 - Utilise get_pending_enrollments pour lister les inscriptions en attente.
-- Utilise search_student pour retrouver un élève avant de proposer une inscription.
-- Utilise propose_enrollment_create (HITL) pour créer une inscription — JAMAIS sans canvas de confirmation.
 - Utilise propose_enrollment_validate (HITL) pour valider une ou plusieurs inscriptions en attente.
 - Génère des liens vers les fiches élèves au format : [Prénom Nom](/eleves/UUID_ELEVE)
 - Pour toute ambiguïté (homonyme, classe introuvable), DEMANDE confirmation avant d'agir.
+- Rappelle toujours que l'élève reste 'en attente' jusqu'au premier paiement des frais d'inscription.
 
 Si le module actif est "eleves" :
 - Utilise get_student_detail pour répondre aux questions sur un élève spécifique.

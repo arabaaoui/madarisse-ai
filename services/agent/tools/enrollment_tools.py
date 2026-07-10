@@ -81,24 +81,38 @@ def get_pending_enrollments(ctx: AgentContext) -> list[dict]:
 
 
 async def propose_enrollment_create(
-    student_id: str,
+    first_name: str,
+    last_name: str,
     class_id: str,
     academic_year_id: str,
     enrollment_fee: float,
     tuition_fee: float,
     ctx: AgentContext,
+    first_name_ar: str = "",
+    last_name_ar: str = "",
+    date_of_birth: str = "",
+    gender: str = "",
+    parent_name: str = "",
+    phone: str = "",
 ) -> dict:
     """
-    HITL — Propose la création d'une inscription.
-    Ne crée PAS encore l'inscription — retourne un action_log_id pour que
-    le front affiche le canvas de confirmation.
+    HITL — Propose la création d'une inscription pour un NOUVEL élève.
+    L'élève n'a pas besoin d'exister au préalable — il sera créé (statut 'pending')
+    lors de la confirmation. Il passe 'confirmed' au premier paiement validé.
 
     Args:
-        student_id: UUID de l'élève
+        first_name: Prénom de l'élève
+        last_name: Nom de famille de l'élève
         class_id: UUID de la classe
         academic_year_id: UUID de l'année scolaire
         enrollment_fee: Frais d'inscription (MAD)
         tuition_fee: Frais de scolarité mensuel (MAD)
+        first_name_ar: Prénom en arabe (optionnel)
+        last_name_ar: Nom en arabe (optionnel)
+        date_of_birth: Date de naissance YYYY-MM-DD (optionnel)
+        gender: Sexe 'M' ou 'F' (optionnel)
+        parent_name: Nom du parent/tuteur (optionnel)
+        phone: Téléphone du parent (optionnel)
         ctx: Contexte agent
 
     Returns:
@@ -106,30 +120,28 @@ async def propose_enrollment_create(
     """
     client = get_supabase_client_for_user(ctx.user_jwt)
 
-    # Récupère les détails pour le canvas
-    student = client.table("students").select("first_name, last_name").eq("id", student_id).single().execute()
     class_ = client.table("classes").select("name").eq("id", class_id).single().execute()
     year = client.table("academic_years").select("year").eq("id", academic_year_id).single().execute()
 
     payload = {
-        "student_id": student_id,
+        "first_name": first_name,
+        "last_name": last_name,
+        "first_name_ar": first_name_ar,
+        "last_name_ar": last_name_ar,
+        "date_of_birth": date_of_birth,
+        "gender": gender,
+        "parent_name": parent_name,
+        "phone": phone,
         "class_id": class_id,
         "academic_year_id": academic_year_id,
         "enrollment_fee": enrollment_fee,
         "tuition_fee": tuition_fee,
     }
 
-    # Snapshot de l'état actuel (pour réversibilité)
-    snapshot_before = {
-        "existing_enrollments": client.table("enrollments")
-            .select("id, status").eq("student_id", student_id).eq("academic_year_id", academic_year_id)
-            .execute().data or []
-    }
-
     action_log_id = await propose_action(
         action_type="enrollment.create",
         payload=payload,
-        snapshot_before=snapshot_before,
+        snapshot_before=None,
         agent_id="school-agent/enrollment",
         ctx=ctx,
     )
@@ -138,12 +150,13 @@ async def propose_enrollment_create(
         "action_log_id": action_log_id,
         "canvas_type": "enrollment.create",
         "preview": {
-            "student_name": f"{student.data['first_name']} {student.data['last_name']}",
+            "student_name": f"{first_name} {last_name}",
             "class_name": class_.data["name"],
             "academic_year": year.data["year"],
             "enrollment_fee": enrollment_fee,
             "tuition_fee": tuition_fee,
             "estimated_total": enrollment_fee + (tuition_fee * 10),  # 10 mois
+            "note": "L'élève sera créé avec statut 'en attente' — actif après premier paiement.",
         },
     }
 
