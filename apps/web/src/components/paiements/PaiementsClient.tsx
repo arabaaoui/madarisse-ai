@@ -1,25 +1,108 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { PaymentSchedule } from './PaymentSchedule'
 import { PaymentForm } from './PaymentForm'
 import { useStudentPayments } from '@/hooks/usePayments'
+import { createClient } from '@/lib/supabase/client'
+import { Loader2 } from 'lucide-react'
 import type { PaymentItem } from '@/types/payment'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('fr-MA', { style: 'currency', currency: 'MAD' }).format(n)
 
+// ─── Panneau paiements récents (tous élèves, 20 derniers) ─────────────────────
+interface RecentPayment {
+  id: string
+  payment_date: string | null
+  paid_amount: number
+  item_type: string
+  payment_method: string | null
+  students: { first_name: string; last_name: string } | null
+  enrollments: { new_class: string | null } | null
+}
+
+function RecentPaymentsPanel({ refreshKey }: { refreshKey: number }) {
+  const [items, setItems] = useState<RecentPayment[]>([])
+  const [loading, setLoading] = useState(true)
+  const sb = createClient()
+
+  useEffect(() => {
+    setLoading(true)
+    sb.from('payment_items')
+      .select('id, payment_date, paid_amount, item_type, payment_method, students(first_name, last_name), enrollments(new_class)')
+      .eq('status', 'paid')
+      .order('updated_at', { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        setItems((data ?? []) as unknown as RecentPayment[])
+        setLoading(false)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
+
+  const itemTypeLabel = (t: string) =>
+    t === 'enrollment_fee' ? 'Frais inscription' : t === 'schedule' ? 'Scolarité' : 'Manuel'
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-6">
+      <h2 className="mb-4 text-base font-semibold text-gray-900">Paiements récents</h2>
+      {loading ? (
+        <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-gray-400 py-4 text-center">Aucun paiement enregistré.</p>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-gray-100">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr className="text-left text-xs text-gray-500">
+                <th className="px-3 py-2 font-medium">Date</th>
+                <th className="px-3 py-2 font-medium">Élève</th>
+                <th className="px-3 py-2 font-medium">Classe</th>
+                <th className="px-3 py-2 font-medium">Type</th>
+                <th className="px-3 py-2 font-medium">Mode</th>
+                <th className="px-3 py-2 font-medium text-right">Montant</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {items.map((p) => (
+                <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                    {p.payment_date ? new Date(p.payment_date).toLocaleDateString('fr-FR') : '—'}
+                  </td>
+                  <td className="px-3 py-2 font-medium text-gray-900">
+                    {p.students ? `${p.students.first_name} ${p.students.last_name}` : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-gray-500">{p.enrollments?.new_class ?? '—'}</td>
+                  <td className="px-3 py-2 text-gray-600">{itemTypeLabel(p.item_type)}</td>
+                  <td className="px-3 py-2 text-gray-500 capitalize">{p.payment_method ?? '—'}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-green-700">
+                    +{fmt(p.paid_amount)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function PaiementsClient() {
   const [studentId, setStudentId] = useState<string | null>(null)
   const [studentName, setStudentName] = useState('')
   const [selectedItem, setSelectedItem] = useState<PaymentItem | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const { data, isLoading, error } = useStudentPayments(studentId)
 
   return (
     <div className="space-y-6">
+      <RecentPaymentsPanel refreshKey={refreshKey} />
+
       <div className="rounded-xl border border-gray-200 bg-white p-6">
         <h2 className="mb-4 text-base font-semibold text-gray-900">Rechercher un \u00e9l\u00e8ve</h2>
         <StudentPickerInline
@@ -72,7 +155,7 @@ export function PaiementsClient() {
             <PaymentForm
               studentId={studentId}
               item={selectedItem}
-              onSuccess={() => setSelectedItem(null)}
+              onSuccess={() => { setSelectedItem(null); setRefreshKey(k => k + 1) }}
               onCancel={() => setSelectedItem(null)}
             />
           )}
