@@ -39,6 +39,9 @@ export async function POST(request: NextRequest) {
 
   const agentServiceUrl = process.env.AGENT_SERVICE_URL || 'http://localhost:8001'
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+
   let agentResponse: Response
   try {
     agentResponse = await fetch(`${agentServiceUrl}/chat`, {
@@ -49,10 +52,15 @@ export async function POST(request: NextRequest) {
         'X-Agent-Secret': process.env.AGENT_SERVICE_SECRET || '',
       },
       body: JSON.stringify({ messages, active_module, session_id }),
+      signal: controller.signal,
     })
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Agent service unavailable'
+    const msg = err instanceof Error && err.name === 'AbortError'
+      ? 'Agent service timeout (15s) — vérifiez que le service agent est démarré.'
+      : (err instanceof Error ? err.message : 'Agent service unavailable')
     return sseError(msg)
+  } finally {
+    clearTimeout(timeout)
   }
 
   if (!agentResponse.ok) {
