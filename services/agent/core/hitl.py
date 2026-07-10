@@ -167,7 +167,7 @@ async def _execute_enrollment_create(payload: dict, user_client, ctx: AgentConte
     enrollment_result = user_client.table("enrollments").insert({
         "tenant_id": ctx.tenant_id,
         "student_id": student["id"],
-        "class_id": payload["class_id"],
+        "new_class": payload.get("class_name") or payload.get("class_id"),
         "academic_year_id": payload["academic_year_id"],
         "enrollment_fee": payload.get("enrollment_fee", 0),
         "tuition_fee": payload.get("tuition_fee", 0),

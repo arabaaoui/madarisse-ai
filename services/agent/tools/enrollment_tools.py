@@ -54,9 +54,8 @@ def get_pending_enrollments(ctx: AgentContext) -> list[dict]:
 
     result = client.table("enrollments") \
         .select("""
-            id, status, enrollment_fee, tuition_fee, created_at,
+            id, status, enrollment_fee, tuition_fee, new_class, created_at,
             students!inner(first_name, last_name),
-            classes!inner(name),
             academic_years!inner(year)
         """) \
         .eq("tenant_id", ctx.tenant_id) \
@@ -70,7 +69,7 @@ def get_pending_enrollments(ctx: AgentContext) -> list[dict]:
         {
             "id": r["id"],
             "student_name": f"{r['students']['first_name']} {r['students']['last_name']}",
-            "class_name": r["classes"]["name"],
+            "class_name": r.get("new_class"),
             "academic_year": r["academic_years"]["year"],
             "enrollment_fee": r["enrollment_fee"],
             "tuition_fee": r["tuition_fee"],
@@ -83,11 +82,11 @@ def get_pending_enrollments(ctx: AgentContext) -> list[dict]:
 async def propose_enrollment_create(
     first_name: str,
     last_name: str,
-    class_id: str,
-    academic_year_id: str,
+    class_name: str,
     enrollment_fee: float,
     tuition_fee: float,
     ctx: AgentContext,
+    academic_year_id: str = "",
     first_name_ar: str = "",
     last_name_ar: str = "",
     date_of_birth: str = "",
@@ -103,10 +102,10 @@ async def propose_enrollment_create(
     Args:
         first_name: Prénom de l'élève
         last_name: Nom de famille de l'élève
-        class_id: UUID de la classe
-        academic_year_id: UUID de l'année scolaire
+        class_name: Nom de la classe (ex: "CE2", "CM1") — l'UUID est résolu automatiquement
         enrollment_fee: Frais d'inscription (MAD)
         tuition_fee: Frais de scolarité mensuel (MAD)
+        academic_year_id: UUID de l'année scolaire (optionnel — année active par défaut)
         first_name_ar: Prénom en arabe (optionnel)
         last_name_ar: Nom en arabe (optionnel)
         date_of_birth: Date de naissance YYYY-MM-DD (optionnel)
@@ -120,8 +119,47 @@ async def propose_enrollment_create(
     """
     client = get_supabase_client_for_user(ctx.user_jwt)
 
-    class_ = client.table("classes").select("name").eq("id", class_id).single().execute()
-    year = client.table("academic_years").select("year").eq("id", academic_year_id).single().execute()
+    # Resolve class name → UUID
+    class_result = client.table("classes") \
+        .select("id, name") \
+        .eq("tenant_id", ctx.tenant_id) \
+        .ilike("name", class_name.strip()) \
+        .limit(1) \
+        .execute()
+    if not class_result.data:
+        return {"error": f"Classe '{class_name}' introuvable. Vérifiez le nom exact."}
+    class_ = class_result.data[0]
+    class_id = class_["id"]
+
+    # Resolve academic year (active year by default)
+    if academic_year_id:
+        year_result = client.table("academic_years") \
+            .select("id, year") \
+            .eq("id", academic_year_id) \
+            .single() \
+            .execute()
+        year_data = year_result.data
+    else:
+        year_result = client.table("academic_years") \
+            .select("id, year") \
+            .eq("tenant_id", ctx.tenant_id) \
+            .eq("is_active", True) \
+            .limit(1) \
+            .execute()
+        if year_result.data:
+            year_data = year_result.data[0]
+        else:
+            # Fallback: most recent year
+            year_result2 = client.table("academic_years") \
+                .select("id, year") \
+                .eq("tenant_id", ctx.tenant_id) \
+                .order("start_date", desc=True) \
+                .limit(1) \
+                .execute()
+            year_data = year_result2.data[0] if year_result2.data else None
+
+    if not year_data:
+        return {"error": "Aucune année scolaire active trouvée. Configurez une année scolaire d'abord."}
 
     payload = {
         "first_name": first_name,
@@ -133,7 +171,8 @@ async def propose_enrollment_create(
         "parent_name": parent_name,
         "phone": phone,
         "class_id": class_id,
-        "academic_year_id": academic_year_id,
+        "class_name": class_["name"],
+        "academic_year_id": year_data["id"],
         "enrollment_fee": enrollment_fee,
         "tuition_fee": tuition_fee,
     }
@@ -151,8 +190,8 @@ async def propose_enrollment_create(
         "canvas_type": "enrollment.create",
         "preview": {
             "student_name": f"{first_name} {last_name}",
-            "class_name": class_.data["name"],
-            "academic_year": year.data["year"],
+            "class_name": class_["name"],
+            "academic_year": year_data["year"],
             "enrollment_fee": enrollment_fee,
             "tuition_fee": tuition_fee,
             "estimated_total": enrollment_fee + (tuition_fee * 10),  # 10 mois
@@ -186,7 +225,7 @@ async def propose_enrollment_validate(
 
     # Récupère les détails pour le canvas
     enrollments_data = client.table("enrollments") \
-        .select("id, students!inner(first_name, last_name), classes!inner(name)") \
+        .select("id, new_class, students!inner(first_name, last_name)") \
         .in_("id", enrollment_ids) \
         .eq("tenant_id", ctx.tenant_id) \
         .execute().data or []
@@ -195,7 +234,7 @@ async def propose_enrollment_validate(
         {
             "id": e["id"],
             "student_name": f"{e['students']['first_name']} {e['students']['last_name']}",
-            "class_name": e["classes"]["name"],
+            "class_name": e.get("new_class"),
         }
         for e in enrollments_data
     ]

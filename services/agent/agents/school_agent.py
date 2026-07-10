@@ -52,6 +52,8 @@ Si le module actif est "inscriptions" :
   (statut 'en attente') lors de la confirmation de l'inscription. Il passe 'actif' au premier paiement validé.
 - Pour inscrire un nouvel élève : collecte prénom, nom, classe, frais d'inscription et frais mensuel,
   puis utilise propose_enrollment_create (HITL) — NE cherche PAS d'abord un élève existant.
+  IMPORTANT : le paramètre s'appelle class_name (ex: "CM1", "CE2"), PAS class_id. Passe directement le nom de la classe.
+  L'année scolaire est résolue automatiquement — ne demande pas academic_year_id.
 - Pour un élève qui s'est déjà inscrit les années précédentes (renouvellement) : utilise search_student
   pour retrouver le dossier existant avant de proposer une inscription.
 - Utilise get_pending_enrollments pour lister les inscriptions en attente.
