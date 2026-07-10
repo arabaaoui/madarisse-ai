@@ -31,10 +31,12 @@ export function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <aside className="w-56 border-r bg-card flex flex-col h-full shrink-0">
+    <aside className="w-56 bg-sidebar flex flex-col h-full shrink-0 border-r border-sidebar-border">
       {/* Logo */}
-      <div className="h-14 flex items-center px-4 border-b">
-        <span className="font-bold text-lg tracking-tight">Madarisse AI</span>
+      <div className="h-14 flex items-center px-4 border-b border-sidebar-border">
+        <span className="font-bold text-lg tracking-tight text-sidebar-foreground">
+          <span className="text-sidebar-primary">M</span>adarisse AI
+        </span>
       </div>
 
       {/* Navigation */}
@@ -46,10 +48,10 @@ export function Sidebar() {
               key={href}
               href={href}
               className={`
-                flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors
+                flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
                 ${active
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? 'bg-sidebar-accent text-sidebar-foreground'
+                  : 'text-sidebar-foreground/60 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground'
                 }
               `}
             >
@@ -61,7 +63,7 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t text-xs text-muted-foreground">
+      <div className="p-3 border-t border-sidebar-border text-xs text-sidebar-foreground/50">
         <p>madarisse.com</p>
       </div>
     </aside>
