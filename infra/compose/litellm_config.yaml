@@ -16,7 +16,7 @@ model_list:
           api_key: os.environ/ANTHROPIC_API_KEY
 
 router_settings:
-  routing_strategy: cost-based
+  routing_strategy: cost-based-routing
   num_retries: 2
   timeout: 30
 
