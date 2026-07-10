@@ -17,8 +17,9 @@ export async function GET(request: NextRequest) {
     .from('enrollments')
     .select(`
       id, student_id, class_id, academic_year_id, enrollment_fee, tuition_fee, status, created_at,
-      students!inner(first_name, last_name),
-      classes!inner(name),
+      candidate_first_name, candidate_last_name, new_class,
+      students(first_name, last_name),
+      classes(name),
       academic_years!inner(year)
     `)
     .order('created_at', { ascending: false })
@@ -33,17 +34,25 @@ export async function GET(request: NextRequest) {
 
   const rows = data ?? []
   const hasMore = rows.length > limit
-  const items = rows.slice(0, limit).map((r) => ({
-    id: r.id,
-    studentId: r.student_id,
-    studentName: `${(r.students as any).first_name} ${(r.students as any).last_name}`,
-    className: (r.classes as any).name,
-    academicYear: (r.academic_years as any).year,
-    enrollmentFee: r.enrollment_fee,
-    tuitionFee: r.tuition_fee,
-    status: r.status,
-    createdAt: r.created_at,
-  }))
+  const items = rows.slice(0, limit).map((r) => {
+    const s = r.students as any
+    const c = r.classes as any
+    const studentName = s
+      ? `${s.first_name} ${s.last_name}`
+      : [r.candidate_first_name, r.candidate_last_name].filter(Boolean).join(' ') || 'Candidat'
+    const className = c?.name || r.new_class || '—'
+    return {
+      id: r.id,
+      studentId: r.student_id,
+      studentName,
+      className,
+      academicYear: (r.academic_years as any).year,
+      enrollmentFee: r.enrollment_fee,
+      tuitionFee: r.tuition_fee,
+      status: r.status,
+      createdAt: r.created_at,
+    }
+  })
 
   return NextResponse.json({ data: items, hasMore })
 }

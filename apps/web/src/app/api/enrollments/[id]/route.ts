@@ -13,8 +13,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
     .from('enrollments')
     .select(`
       id, student_id, class_id, academic_year_id, enrollment_fee, tuition_fee, status, created_at,
-      students!inner(first_name, last_name),
-      classes!inner(name),
+      candidate_first_name, candidate_last_name, new_class,
+      students(first_name, last_name),
+      classes(name),
       academic_years!inner(year)
     `)
     .eq('id', id)
@@ -22,11 +23,18 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   if (error || !data) return NextResponse.json({ error: 'Non trouvée' }, { status: 404 })
 
+  const s = data.students as any
+  const c = data.classes as any
+  const studentName = s
+    ? `${s.first_name} ${s.last_name}`
+    : [data.candidate_first_name, data.candidate_last_name].filter(Boolean).join(' ') || 'Candidat'
+  const className = c?.name || data.new_class || '—'
+
   return NextResponse.json({
     id: data.id,
     studentId: data.student_id,
-    studentName: `${(data.students as any).first_name} ${(data.students as any).last_name}`,
-    className: (data.classes as any).name,
+    studentName,
+    className,
     academicYear: (data.academic_years as any).year,
     enrollmentFee: data.enrollment_fee,
     tuitionFee: data.tuition_fee,
@@ -48,10 +56,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Statut invalide (confirmed | cancelled)' }, { status: 400 })
   }
 
-  // Récupère l'inscription courante
+  // Récupère l'inscription courante (avec infos candidat pour inscriptions agent)
   const { data: current } = await supabase
     .from('enrollments')
-    .select('id, status, student_id, enrollment_fee, tuition_fee, tenant_id')
+    .select('id, status, student_id, enrollment_fee, tuition_fee, tenant_id, academic_year_id, candidate_first_name, candidate_last_name, new_class')
     .eq('id', id)
     .single()
 
@@ -63,6 +71,33 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Inscription annulée — non modifiable' }, { status: 409 })
   }
 
+  let studentId = current.student_id
+
+  // Inscription créée par l'agent (sans student_id) : créer l'élève maintenant
+  if (!studentId && current.candidate_first_name) {
+    let classId: string | null = null
+    if (current.new_class) {
+      const { data: cls } = await supabase.from('classes')
+        .select('id').eq('tenant_id', current.tenant_id)
+        .eq('academic_year_id', current.academic_year_id)
+        .ilike('name', current.new_class).limit(1)
+      classId = cls?.[0]?.id ?? null
+    }
+    const { data: newStudent } = await supabase.from('students').insert({
+      tenant_id: current.tenant_id,
+      first_name: current.candidate_first_name,
+      last_name: current.candidate_last_name,
+      class: current.new_class || '',
+      annual_status: 'pending',
+      academic_year_id: current.academic_year_id,
+      ...(classId ? { class_id: classId } : {}),
+    }).select('id').single()
+    if (newStudent) {
+      studentId = newStudent.id
+      await supabase.from('enrollments').update({ student_id: studentId }).eq('id', id)
+    }
+  }
+
   const { error: updateError } = await supabase
     .from('enrollments')
     .update({ status })
@@ -70,11 +105,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
 
-  // Génère l'échéancier si confirmation
-  if (status === 'confirmed') {
+  // Génère l'échéancier si confirmation et si le trigger ne l'a pas déjà fait
+  if (status === 'confirmed' && studentId) {
     await generatePaymentSchedule(supabase, {
       enrollmentId: id,
-      studentId: current.student_id,
+      studentId,
       tenantId: current.tenant_id,
       enrollmentFee: current.enrollment_fee,
       tuitionFee: current.tuition_fee,
