@@ -1,21 +1,37 @@
 /**
- * API Route — Proxy vers le service agent (FastAPI/ADK).
- * Transmet le JWT utilisateur à l'agent pour que le RLS soit hérité.
- * Streame la réponse au format Vercel AI SDK data stream protocol.
+ * BFF — proxy vers l'agent FastAPI.
+ * L'agent retourne du SSE (AI SDK v6 UI Message Stream protocol).
+ * Ce proxy transmet le flux tel quel avec les bons headers.
  */
 
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+
+const SSE_HEADERS = {
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  'Connection': 'keep-alive',
+  'X-Accel-Buffering': 'no',
+}
+
+function sseError(msg: string): NextResponse {
+  const body = [
+    `data: {"type":"text-start","id":"err"}\n\n`,
+    `data: {"type":"text-delta","id":"err","delta":${JSON.stringify(msg)}}\n\n`,
+    `data: {"type":"text-end","id":"err"}\n\n`,
+    `data: {"type":"finish-step"}\n\n`,
+    `data: {"type":"finish","finishReason":"error"}\n\n`,
+    'data: [DONE]\n\n',
+  ].join('')
+  return new NextResponse(body, { headers: SSE_HEADERS })
+}
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { session } } = await supabase.auth.getSession()
 
   if (!session) {
-    return new NextResponse('3:"Veuillez vous connecter pour utiliser l\'assistant."\nd:{"finishReason":"error"}\n', {
-      status: 200,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    })
+    return sseError('Veuillez vous connecter pour utiliser l\'assistant.')
   }
 
   const body = await request.json()
@@ -36,54 +52,18 @@ export async function POST(request: NextRequest) {
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Agent service unavailable'
-    return new NextResponse(`3:"${msg}"\nd:{"finishReason":"error"}\n`, {
-      status: 200,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    })
+    return sseError(msg)
   }
 
   if (!agentResponse.ok) {
     const error = await agentResponse.text()
-    return new NextResponse(`3:${JSON.stringify(error)}\nd:{"finishReason":"error"}\n`, {
-      status: 200,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    })
+    return sseError(`Erreur agent (${agentResponse.status}): ${error.slice(0, 200)}`)
   }
 
-  // Transfère le stream de l'agent en ajoutant le signal de fin attendu par AI SDK v6
-  const agentBody = agentResponse.body
-  if (!agentBody) {
-    return new NextResponse('3:"Réponse vide de l\'agent."\nd:{"finishReason":"error"}\n', {
-      status: 200,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    })
+  if (!agentResponse.body) {
+    return sseError('Réponse vide de l\'agent.')
   }
 
-  const encoder = new TextEncoder()
-  const stream = new ReadableStream({
-    async start(controller) {
-      const reader = agentBody.getReader()
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          controller.enqueue(value)
-        }
-        // Signal de fin AI SDK v6
-        controller.enqueue(encoder.encode('d:{"finishReason":"stop"}\n'))
-      } catch (e) {
-        controller.enqueue(encoder.encode('d:{"finishReason":"error"}\n'))
-      } finally {
-        controller.close()
-      }
-    },
-  })
-
-  return new NextResponse(stream, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-    },
-  })
+  // Proxy direct du stream SSE de l'agent
+  return new NextResponse(agentResponse.body, { headers: SSE_HEADERS })
 }

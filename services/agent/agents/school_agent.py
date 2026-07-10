@@ -141,13 +141,36 @@ class SchoolAgent:
         ]
 
     async def stream(self, messages: list[dict]) -> AsyncIterator[str]:
-        """Streame la réponse en format Vercel AI SDK (data: prefix)."""
+        """
+        Streame la réponse en format AI SDK v6 UI Message Stream (SSE).
+        DefaultChatTransport attend : data: {type, ...}\\n\\n
+        """
+        import uuid as _uuid
+
         session = await self._session_service.create_session(
             app_name="madarisse-ai",
             user_id=self.ctx.user_id,
         )
 
-        user_message = messages[-1]["content"] if messages else ""
+        # Extrait le texte du dernier message (supporte content et parts)
+        last = messages[-1] if messages else {}
+        user_message = (
+            last.get("content")
+            or next(
+                (p.get("text", "") for p in last.get("parts", []) if p.get("type") == "text"),
+                "",
+            )
+        )
+
+        message_id = str(_uuid.uuid4())
+        text_id = str(_uuid.uuid4())
+
+        def sse(chunk: dict) -> str:
+            return f"data: {json.dumps(chunk)}\n\n"
+
+        yield sse({"type": "start", "messageId": message_id})
+        yield sse({"type": "start-step"})
+        yield sse({"type": "text-start", "id": text_id})
 
         try:
             async for event in self._runner.run_async(
@@ -157,15 +180,22 @@ class SchoolAgent:
             ):
                 if event.is_final_response():
                     text = event.content.parts[0].text if event.content else ""
-                    yield f'0:{json.dumps(text)}\n'
+                    if text:
+                        yield sse({"type": "text-delta", "id": text_id, "delta": text})
                 elif hasattr(event, "content") and event.content:
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
-                            yield f'0:{json.dumps(part.text)}\n'
+                            yield sse({"type": "text-delta", "id": text_id, "delta": part.text})
 
         except Exception as e:
             logger.error("agent_stream_error", error=str(e), user_id=self.ctx.user_id)
-            yield f'0:{json.dumps("Désolé, une erreur s\'est produite. Veuillez réessayer.")}\n'
+            err_msg = "Désolé, une erreur s'est produite. Veuillez réessayer."
+            yield sse({"type": "text-delta", "id": text_id, "delta": err_msg})
+
+        yield sse({"type": "text-end", "id": text_id})
+        yield sse({"type": "finish-step"})
+        yield sse({"type": "finish", "finishReason": "stop"})
+        yield "data: [DONE]\n\n"
 
 
 def _to_adk_content(text: str):
