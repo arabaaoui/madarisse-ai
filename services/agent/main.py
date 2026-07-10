@@ -69,29 +69,45 @@ async def health():
     return {"status": "ok", "service": "madarisse-ai-agent"}
 
 
+def _sse_error(msg: str) -> str:
+    import json as _json
+    chunks = [
+        {"type": "text-start", "id": "err"},
+        {"type": "text-delta", "id": "err", "delta": msg},
+        {"type": "text-end", "id": "err"},
+        {"type": "finish-step"},
+        {"type": "finish", "finishReason": "error"},
+    ]
+    return "".join(f"data: {_json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+
+
 @app.post("/chat")
 async def chat(
     body: ChatRequest,
     ctx: AgentContext = Depends(get_agent_context),
 ):
-    """
-    Streaming SSE — compatible Vercel AI SDK (text/event-stream, data: prefix).
-    L'agent reçoit le contexte utilisateur (JWT → tenant_id, user_id, role) et
-    le module actif pour contextualiser les outils disponibles.
-    """
-    agent = SchoolAgent(ctx=ctx, active_module=body.active_module)
+    """Streaming SSE — AI SDK v6 UI Message Stream protocol."""
+    try:
+        agent = SchoolAgent(ctx=ctx, active_module=body.active_module)
+    except Exception as e:
+        logger.error("agent_init_error", error=str(e), user_id=ctx.user_id)
+        async def init_error_stream():
+            yield _sse_error(f"Erreur d'initialisation de l'agent : {e}")
+        return StreamingResponse(init_error_stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     async def event_stream():
-        async for chunk in agent.stream(body.messages):
-            yield chunk
+        try:
+            async for chunk in agent.stream(body.messages):
+                yield chunk
+        except Exception as e:
+            logger.error("agent_stream_error", error=str(e), user_id=ctx.user_id)
+            yield _sse_error(f"Erreur de streaming : {e}")
 
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # disable nginx buffering
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

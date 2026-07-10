@@ -51,8 +51,13 @@ async def verify_jwt_token(token: str) -> AgentContext:
     email = payload.get("email", "")
 
     if not tenant_id:
-        # Fallback : interroge la table profiles (nécessite un appel DB)
-        tenant_id = await _fetch_tenant_from_db(user_id, token)
+        try:
+            tenant_id = await _fetch_tenant_from_db(user_id, token)
+        except HTTPException:
+            raise
+        except Exception:
+            # profiles table absente ou inaccessible — fallback user_id comme tenant
+            tenant_id = user_id
 
     return AgentContext(
         user_id=user_id,
