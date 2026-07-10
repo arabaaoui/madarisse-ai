@@ -1,0 +1,33 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="120" height="120" rx="20" fill="#02133E"/>
+
+  <!-- Open book — left page (white) -->
+  <path d="M18 36 C18 30 22 26 28 26 L57 28 L57 90 C46 88 36 83 28 76 C22 71 18 66 18 60 Z"
+        fill="#FFFFFF" opacity="0.95"/>
+
+  <!-- Open book — right page (orange) -->
+  <path d="M102 36 C102 30 98 26 92 26 L63 28 L63 90 C74 88 84 83 92 76 C98 71 102 66 102 60 Z"
+        fill="#FF7A00"/>
+
+  <!-- Book spine -->
+  <rect x="57" y="26" width="6" height="64" rx="1" fill="#02133E" opacity="0.15"/>
+
+  <!-- Letter M on left page -->
+  <text x="24" y="70"
+        font-family="Inter, Arial, sans-serif"
+        font-weight="800"
+        font-size="30"
+        fill="#02133E"
+        letter-spacing="-1">M</text>
+
+  <!-- .ai on right page -->
+  <text x="65" y="68"
+        font-family="Inter, Arial, sans-serif"
+        font-weight="700"
+        font-size="17"
+        fill="#FFFFFF">.ai</text>
+
+  <!-- Decorative dot — top of spine -->
+  <circle cx="60" cy="22" r="4" fill="#FF7A00"/>
+</svg>

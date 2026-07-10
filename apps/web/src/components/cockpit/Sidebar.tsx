@@ -1,10 +1,6 @@
 'use client'
 
-/**
- * Sidebar de navigation — tous les modules du cockpit.
- * Identique à la sidebar de ecole-muret mais portée en Next.js App Router.
- */
-
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -33,9 +29,10 @@ export function Sidebar() {
   return (
     <aside className="w-56 bg-sidebar flex flex-col h-full shrink-0 border-r border-sidebar-border">
       {/* Logo */}
-      <div className="h-14 flex items-center px-4 border-b border-sidebar-border">
-        <span className="font-bold text-lg tracking-tight text-sidebar-foreground">
-          <span className="text-sidebar-primary">M</span>adarisse AI
+      <div className="h-14 flex items-center gap-2.5 px-4 border-b border-sidebar-border">
+        <Image src="/logo.svg" alt="Madarisse AI" width={32} height={32} />
+        <span className="font-bold text-base tracking-tight text-sidebar-foreground">
+          Madarisse<span className="text-sidebar-primary">.ai</span>
         </span>
       </div>
 
