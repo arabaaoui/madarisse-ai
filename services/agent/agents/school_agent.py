@@ -201,8 +201,10 @@ class SchoolAgent:
                             yield sse({"type": "text-delta", "id": text_id, "delta": part.text})
 
         except Exception as e:
-            logger.error("agent_stream_error", error=str(e), user_id=self.ctx.user_id)
-            err_msg = "Désolé, une erreur s'est produite. Veuillez réessayer."
+            import traceback as _tb
+            err_detail = _tb.format_exc()
+            logger.error("agent_stream_error", error=str(e), traceback=err_detail, user_id=self.ctx.user_id)
+            err_msg = f"Erreur agent : {e}"
             yield sse({"type": "text-delta", "id": text_id, "delta": err_msg})
 
         yield sse({"type": "text-end", "id": text_id})

@@ -117,6 +117,36 @@ async def propose_enrollment_create(
     Returns:
         {"action_log_id": "...", "canvas_type": "enrollment.create", "preview": {...}}
     """
+    import traceback as _tb
+    try:
+        return await _propose_enrollment_create_impl(
+            first_name=first_name, last_name=last_name, class_name=class_name,
+            enrollment_fee=enrollment_fee, tuition_fee=tuition_fee, ctx=ctx,
+            academic_year_id=academic_year_id, first_name_ar=first_name_ar,
+            last_name_ar=last_name_ar, date_of_birth=date_of_birth,
+            gender=gender, parent_name=parent_name, phone=phone,
+        )
+    except Exception as e:
+        import structlog as _sl
+        _sl.get_logger().error("propose_enrollment_create_error", error=str(e), traceback=_tb.format_exc())
+        return {"error": f"Erreur lors de la création de l'inscription : {e}"}
+
+
+async def _propose_enrollment_create_impl(
+    first_name: str,
+    last_name: str,
+    class_name: str,
+    enrollment_fee: float,
+    tuition_fee: float,
+    ctx: AgentContext,
+    academic_year_id: str = "",
+    first_name_ar: str = "",
+    last_name_ar: str = "",
+    date_of_birth: str = "",
+    gender: str = "",
+    parent_name: str = "",
+    phone: str = "",
+) -> dict:
     client = get_supabase_client_for_user(ctx.user_jwt)
 
     # Resolve class name → UUID
@@ -131,35 +161,37 @@ async def propose_enrollment_create(
     class_ = class_result.data[0]
     class_id = class_["id"]
 
-    # Resolve academic year (active year by default)
+    # Resolve academic year — essaie is_active, puis start_date, puis n'importe quelle année
+    year_data = None
     if academic_year_id:
-        year_result = client.table("academic_years") \
-            .select("id, year") \
-            .eq("id", academic_year_id) \
-            .single() \
-            .execute()
-        year_data = year_result.data
+        r = client.table("academic_years").select("id, year").eq("id", academic_year_id).single().execute()
+        year_data = r.data
     else:
-        year_result = client.table("academic_years") \
-            .select("id, year") \
-            .eq("tenant_id", ctx.tenant_id) \
-            .eq("is_active", True) \
-            .limit(1) \
-            .execute()
-        if year_result.data:
-            year_data = year_result.data[0]
-        else:
-            # Fallback: most recent year
-            year_result2 = client.table("academic_years") \
-                .select("id, year") \
-                .eq("tenant_id", ctx.tenant_id) \
-                .order("start_date", desc=True) \
-                .limit(1) \
-                .execute()
-            year_data = year_result2.data[0] if year_result2.data else None
+        # Essaie is_active (colonne ajoutée par migration — peut être absente)
+        try:
+            r = client.table("academic_years").select("id, year") \
+                .eq("tenant_id", ctx.tenant_id).eq("is_active", True).limit(1).execute()
+            year_data = r.data[0] if r.data else None
+        except Exception:
+            pass
+
+        if not year_data:
+            # Fallback : tri par start_date (peut aussi être absent)
+            try:
+                r = client.table("academic_years").select("id, year") \
+                    .eq("tenant_id", ctx.tenant_id).order("start_date", desc=True).limit(1).execute()
+                year_data = r.data[0] if r.data else None
+            except Exception:
+                pass
+
+        if not year_data:
+            # Dernier recours : première année du tenant sans condition de colonne
+            r = client.table("academic_years").select("id, year") \
+                .eq("tenant_id", ctx.tenant_id).limit(1).execute()
+            year_data = r.data[0] if r.data else None
 
     if not year_data:
-        return {"error": "Aucune année scolaire active trouvée. Configurez une année scolaire d'abord."}
+        return {"error": "Aucune année scolaire trouvée pour ce tenant. Créez-en une d'abord."}
 
     payload = {
         "first_name": first_name,
