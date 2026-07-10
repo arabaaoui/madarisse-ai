@@ -11,7 +11,7 @@ import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { MessageSquare, X, Loader2, Send } from 'lucide-react'
+import { MessageSquare, X, Loader2, Send, Trash2 } from 'lucide-react'
 
 interface Props {
   userId: string
@@ -24,11 +24,24 @@ const WELCOME_MESSAGE: UIMessage = {
   metadata: undefined,
 }
 
+const STORAGE_KEY = 'madarisse_chat_messages'
+
+function loadMessages(): UIMessage[] {
+  if (typeof window === 'undefined') return [WELCOME_MESSAGE]
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    return saved ? (JSON.parse(saved) as UIMessage[]) : [WELCOME_MESSAGE]
+  } catch {
+    return [WELCOME_MESSAGE]
+  }
+}
+
 export function AssistantPanel({ userId: _userId }: Props) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const pathname = usePathname()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [initialMessages] = useState<UIMessage[]>(loadMessages)
 
   const activeModule = pathname.split('/')[1] || 'dashboard'
 
@@ -38,12 +51,19 @@ export function AssistantPanel({ userId: _userId }: Props) {
     [],
   )
 
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, error } = useChat({
     transport,
-    messages: [WELCOME_MESSAGE],
+    initialMessages,
   })
 
   const isLoading = status === 'submitted' || status === 'streaming'
+
+  // Persiste les messages dans localStorage
+  useEffect(() => {
+    if (messages.length > 1) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages))
+    }
+  }, [messages])
 
   // ⌘K / Ctrl+K pour ouvrir/fermer
   useEffect(() => {
@@ -92,13 +112,22 @@ export function AssistantPanel({ userId: _userId }: Props) {
           <MessageSquare className="h-4 w-4 text-primary" />
           <span className="font-medium text-sm">Assistant</span>
         </div>
-        <button
-          onClick={() => setOpen(false)}
-          className="rounded-md p-1 hover:bg-muted transition-colors"
-          title="Fermer (⌘K)"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => { localStorage.removeItem(STORAGE_KEY); window.location.reload() }}
+            className="rounded-md p-1 hover:bg-muted transition-colors text-muted-foreground"
+            title="Effacer la conversation"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => setOpen(false)}
+            className="rounded-md p-1 hover:bg-muted transition-colors"
+            title="Fermer (⌘K)"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -135,6 +164,14 @@ export function AssistantPanel({ userId: _userId }: Props) {
           <div className="flex justify-start">
             <div className="bg-muted rounded-lg px-3 py-2">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="flex justify-start">
+            <div className="bg-destructive/10 text-destructive rounded-lg px-3 py-2 text-xs max-w-[85%]">
+              ⚠ Erreur : {error.message || 'Impossible de joindre l\'assistant.'}
             </div>
           </div>
         )}
