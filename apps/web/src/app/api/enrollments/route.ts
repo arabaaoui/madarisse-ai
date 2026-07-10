@@ -13,20 +13,19 @@ export async function GET(request: NextRequest) {
   const academicYearId = searchParams.get('academic_year_id')
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '50'), 200)
 
+  // Note: enrollments n'a pas de FK vers classes (pas de class_id). On utilise new_class (text).
   let query = supabase
     .from('enrollments')
     .select(`
-      id, student_id, class_id, academic_year_id, enrollment_fee, tuition_fee, status, created_at,
+      id, student_id, academic_year_id, enrollment_fee, tuition_fee, status, created_at,
       candidate_first_name, candidate_last_name, new_class,
       students(first_name, last_name),
-      classes(name),
       academic_years!inner(year)
     `)
     .order('created_at', { ascending: false })
     .limit(limit + 1)
 
   if (status) query = query.eq('status', status)
-  if (classId) query = query.eq('class_id', classId)
   if (academicYearId) query = query.eq('academic_year_id', academicYearId)
 
   const { data, error } = await query
@@ -36,16 +35,14 @@ export async function GET(request: NextRequest) {
   const hasMore = rows.length > limit
   const items = rows.slice(0, limit).map((r) => {
     const s = r.students as any
-    const c = r.classes as any
     const studentName = s
       ? `${s.first_name} ${s.last_name}`
       : [r.candidate_first_name, r.candidate_last_name].filter(Boolean).join(' ') || 'Candidat'
-    const className = c?.name || r.new_class || '—'
     return {
       id: r.id,
       studentId: r.student_id,
       studentName,
-      className,
+      className: r.new_class || '—',
       academicYear: (r.academic_years as any).year,
       enrollmentFee: r.enrollment_fee,
       tuitionFee: r.tuition_fee,
@@ -70,8 +67,8 @@ export async function POST(request: NextRequest) {
   }
 
   const { studentId, classId, academicYearId, enrollmentFee, tuitionFee } = body
-  if (!studentId || !classId || !academicYearId) {
-    return NextResponse.json({ error: 'studentId, classId, academicYearId requis' }, { status: 400 })
+  if (!studentId || !academicYearId) {
+    return NextResponse.json({ error: 'studentId, academicYearId requis' }, { status: 400 })
   }
 
   // Récupère le tenant_id depuis le profil utilisateur
@@ -102,21 +99,27 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Résout le nom de classe si classId fourni
+  let className = '—'
+  if (classId) {
+    const { data: cls } = await supabase.from('classes').select('name').eq('id', classId).single()
+    if (cls) className = cls.name
+  }
+
   const { data, error } = await supabase
     .from('enrollments')
     .insert({
       tenant_id: profile.tenant_id,
       student_id: studentId,
-      class_id: classId,
+      new_class: className !== '—' ? className : null,
       academic_year_id: academicYearId,
       enrollment_fee: enrollmentFee ?? 0,
       tuition_fee: tuitionFee ?? 0,
       status: 'pending',
     })
     .select(`
-      id, student_id, class_id, academic_year_id, enrollment_fee, tuition_fee, status, created_at,
+      id, student_id, academic_year_id, enrollment_fee, tuition_fee, status, created_at, new_class,
       students!inner(first_name, last_name),
-      classes!inner(name),
       academic_years!inner(year)
     `)
     .single()
@@ -127,7 +130,7 @@ export async function POST(request: NextRequest) {
     id: data.id,
     studentId: data.student_id,
     studentName: `${(data.students as any).first_name} ${(data.students as any).last_name}`,
-    className: (data.classes as any).name,
+    className: data.new_class || '—',
     academicYear: (data.academic_years as any).year,
     enrollmentFee: data.enrollment_fee,
     tuitionFee: data.tuition_fee,

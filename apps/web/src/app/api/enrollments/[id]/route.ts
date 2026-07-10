@@ -12,10 +12,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const { data, error } = await supabase
     .from('enrollments')
     .select(`
-      id, student_id, class_id, academic_year_id, enrollment_fee, tuition_fee, status, created_at,
+      id, student_id, academic_year_id, enrollment_fee, tuition_fee, status, created_at,
       candidate_first_name, candidate_last_name, new_class,
       students(first_name, last_name),
-      classes(name),
       academic_years!inner(year)
     `)
     .eq('id', id)
@@ -24,17 +23,15 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if (error || !data) return NextResponse.json({ error: 'Non trouvée' }, { status: 404 })
 
   const s = data.students as any
-  const c = data.classes as any
   const studentName = s
     ? `${s.first_name} ${s.last_name}`
     : [data.candidate_first_name, data.candidate_last_name].filter(Boolean).join(' ') || 'Candidat'
-  const className = c?.name || data.new_class || '—'
 
   return NextResponse.json({
     id: data.id,
     studentId: data.student_id,
     studentName,
-    className,
+    className: data.new_class || '—',
     academicYear: (data.academic_years as any).year,
     enrollmentFee: data.enrollment_fee,
     tuitionFee: data.tuition_fee,
