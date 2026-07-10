@@ -243,6 +243,7 @@ function MessageContent({ content }: { content: string }) {
 function ActionCanvas({ invocation }: { invocation: any }) {
   const [actionStatus, setActionStatus] = useState<'pending' | 'confirmed' | 'cancelled'>('pending')
   const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   // AI SDK v6 : DynamicToolUIPart → state:'output-available' → .output
   const result = invocation?.output ?? invocation?.toolInvocation?.result ?? invocation?.result
@@ -258,23 +259,38 @@ function ActionCanvas({ invocation }: { invocation: any }) {
 
   const handleConfirm = async () => {
     setLoading(true)
-    const res = await fetch('/api/agent/action/confirm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action_log_id: result.action_log_id }),
-    })
-    if (res.ok) setActionStatus('confirmed')
+    setErrorMsg(null)
+    try {
+      const res = await fetch('/api/agent/action/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action_log_id: result.action_log_id }),
+      })
+      if (res.ok) {
+        setActionStatus('confirmed')
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setErrorMsg(data?.detail || `Erreur ${res.status}`)
+      }
+    } catch {
+      setErrorMsg('Impossible de joindre le service.')
+    }
     setLoading(false)
   }
 
   const handleCancel = async () => {
     setLoading(true)
-    await fetch('/api/agent/action/cancel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action_log_id: result.action_log_id }),
-    })
-    setActionStatus('cancelled')
+    setErrorMsg(null)
+    try {
+      await fetch('/api/agent/action/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action_log_id: result.action_log_id }),
+      })
+      setActionStatus('cancelled')
+    } catch {
+      setErrorMsg('Impossible de joindre le service.')
+    }
     setLoading(false)
   }
 
@@ -311,6 +327,9 @@ function ActionCanvas({ invocation }: { invocation: any }) {
         </div>
       )}
 
+      {errorMsg && (
+        <div className="text-xs text-destructive bg-destructive/10 rounded p-1.5">{errorMsg}</div>
+      )}
       <div className="flex gap-2 pt-1">
         <button
           onClick={handleCancel}

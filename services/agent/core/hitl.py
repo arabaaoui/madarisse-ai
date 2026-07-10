@@ -148,6 +148,7 @@ async def _execute_enrollment_create(payload: dict, user_client, ctx: AgentConte
         "tenant_id": ctx.tenant_id,
         "first_name": payload["first_name"],
         "last_name": payload["last_name"],
+        "class": payload.get("class_name") or "",   # colonne text NOT NULL
         "annual_status": "pending",
         "class_id": payload["class_id"],
         "academic_year_id": payload["academic_year_id"],
