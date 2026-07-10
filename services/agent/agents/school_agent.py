@@ -117,16 +117,22 @@ class SchoolAgent:
             """
             Retourne un FunctionTool dont la signature exclut `ctx`.
             ADK génère le schéma depuis la signature → ctx absent = non exposé au LLM.
+            Préserve le caractère async des fonctions pour éviter qu'ADK reçoive
+            un coroutine non-awaité.
             """
-            # Signature sans ctx
+            import asyncio as _asyncio
             sig = inspect.signature(fn)
             params_without_ctx = [
                 p for name, p in sig.parameters.items() if name != "ctx"
             ]
             new_sig = sig.replace(parameters=params_without_ctx)
 
-            def wrapper(**kwargs):
-                return fn(**kwargs, ctx=ctx)
+            if _asyncio.iscoroutinefunction(fn):
+                async def wrapper(**kwargs):
+                    return await fn(**kwargs, ctx=ctx)
+            else:
+                def wrapper(**kwargs):
+                    return fn(**kwargs, ctx=ctx)
 
             wrapper.__name__ = fn.__name__
             wrapper.__doc__ = fn.__doc__
