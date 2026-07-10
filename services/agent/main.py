@@ -90,9 +90,10 @@ async def chat(
     try:
         agent = SchoolAgent(ctx=ctx, active_module=body.active_module)
     except Exception as e:
-        logger.error("agent_init_error", error=str(e), user_id=ctx.user_id)
+        err_msg = str(e)
+        logger.error("agent_init_error", error=err_msg, user_id=ctx.user_id)
         async def init_error_stream():
-            yield _sse_error(f"Erreur d'initialisation de l'agent : {e}")
+            yield _sse_error(f"Erreur d'initialisation de l'agent : {err_msg}")
         return StreamingResponse(init_error_stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
