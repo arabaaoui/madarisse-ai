@@ -187,6 +187,9 @@ class SchoolAgent:
         yield sse({"type": "start-step"})
         yield sse({"type": "text-start", "id": text_id})
 
+        # Maps ADK function_call id → toolCallId envoyé au frontend
+        _call_id_map: dict[str, str] = {}
+
         try:
             async for event in self._runner.run_async(
                 user_id=self.ctx.user_id,
@@ -202,12 +205,34 @@ class SchoolAgent:
                         if hasattr(part, "text") and part.text:
                             yield sse({"type": "text-delta", "id": text_id, "delta": part.text})
 
+                        elif hasattr(part, "function_call") and part.function_call:
+                            fc = part.function_call
+                            call_id = str(fc.id) if fc.id else str(_uuid.uuid4())
+                            _call_id_map[str(fc.id or fc.name)] = call_id
+                            args = dict(fc.args) if fc.args else {}
+                            yield sse({
+                                "type": "tool-call",
+                                "toolCallId": call_id,
+                                "toolName": fc.name,
+                                "args": args,
+                            })
+
+                        elif hasattr(part, "function_response") and part.function_response:
+                            fr = part.function_response
+                            call_id = _call_id_map.get(str(fr.id or fr.name), str(_uuid.uuid4()))
+                            result = fr.response if isinstance(fr.response, dict) else {"result": fr.response}
+                            yield sse({
+                                "type": "tool-result",
+                                "toolCallId": call_id,
+                                "toolName": fr.name,
+                                "result": result,
+                            })
+
         except Exception as e:
             import traceback as _tb
             err_detail = _tb.format_exc()
             logger.error("agent_stream_error", error=str(e), traceback=err_detail, user_id=self.ctx.user_id)
-            err_msg = f"Erreur agent : {e}"
-            yield sse({"type": "text-delta", "id": text_id, "delta": err_msg})
+            yield sse({"type": "text-delta", "id": text_id, "delta": "Désolé, une erreur est survenue. Veuillez réessayer."})
 
         yield sse({"type": "text-end", "id": text_id})
         yield sse({"type": "finish-step"})
