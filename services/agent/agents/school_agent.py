@@ -77,9 +77,9 @@ class SchoolAgent:
         )
 
         self._agent = Agent(
-            name="school-agent",
+            name="school_agent",
             model=settings.STRONG_MODEL,
-            system_instruction=system,
+            instruction=system,
             tools=self._bind_tools(),
         )
 
