@@ -17,6 +17,7 @@ import {
   CalendarDays,
   MessageSquare,
   Shield,
+  Briefcase,
 } from 'lucide-react'
 
 const navSections = [
@@ -31,6 +32,7 @@ const navSections = [
       { href: '/eleves',       label: 'Élèves',        icon: Users },
       { href: '/inscriptions', label: 'Inscriptions',  icon: ClipboardList },
       { href: '/paiements',    label: 'Paiements',     icon: CreditCard },
+      { href: '/employees',    label: 'Employés',      icon: Briefcase },
     ],
   },
   {
