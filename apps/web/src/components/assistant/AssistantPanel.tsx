@@ -41,7 +41,7 @@ export function AssistantPanel({ userId: _userId }: Props) {
   const [input, setInput] = useState('')
   const pathname = usePathname()
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [initialMessages] = useState<UIMessage[]>(loadMessages)
+  const [savedMessages] = useState<UIMessage[]>(loadMessages)
 
   const activeModule = pathname.split('/')[1] || 'dashboard'
 
@@ -53,7 +53,7 @@ export function AssistantPanel({ userId: _userId }: Props) {
 
   const { messages, sendMessage, status, error } = useChat({
     transport,
-    initialMessages,
+    messages: savedMessages,
   })
 
   const isLoading = status === 'submitted' || status === 'streaming'
