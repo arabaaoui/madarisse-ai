@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # LLM — noms de modèles Gemini réels (ADK appelle Google AI directement)
-    FAST_MODEL: str = "gemini-2.0-flash"
-    STRONG_MODEL: str = "gemini-2.0-flash"
+    FAST_MODEL: str = "gemini-flash-latest"
+    STRONG_MODEL: str = "gemini-flash-latest"
 
 
 settings = Settings()
