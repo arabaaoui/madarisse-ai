@@ -14,16 +14,19 @@ class Settings(BaseSettings):
     # Internal auth (Next.js BFF → agent)
     AGENT_SERVICE_SECRET: str
 
-    # LiteLLM
+    # LiteLLM (gardé pour compatibilité future)
     LITELLM_API_BASE: str = "http://localhost:4000"
+
+    # Gemini API key — utilisé directement par ADK
+    GEMINI_API_KEY: str = ""
 
     # App
     WEB_APP_URL: str = "http://localhost:3000"
     DEBUG: bool = False
 
-    # LLM defaults
-    FAST_MODEL: str = "fast"    # alias LiteLLM
-    STRONG_MODEL: str = "strong"  # alias LiteLLM
+    # LLM — noms de modèles Gemini réels (ADK appelle Google AI directement)
+    FAST_MODEL: str = "gemini-2.0-flash"
+    STRONG_MODEL: str = "gemini-2.5-flash"
 
 
 settings = Settings()
