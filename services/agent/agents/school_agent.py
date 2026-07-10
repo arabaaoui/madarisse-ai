@@ -214,6 +214,7 @@ class SchoolAgent:
                                 "toolCallId": call_id,
                                 "toolName": fc.name,
                                 "input": dict(fc.args) if fc.args else {},
+                                "dynamic": True,
                             })
 
                         elif hasattr(part, "function_response") and part.function_response:
@@ -224,6 +225,7 @@ class SchoolAgent:
                                 "type": "tool-output-available",
                                 "toolCallId": call_id,
                                 "output": output,
+                                "dynamic": True,
                             })
 
         except Exception as e:
