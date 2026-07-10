@@ -27,16 +27,19 @@ interface AccCategory {
 // ─── Hook tenant ──────────────────────────────────────────────────────────────
 function useTenantId() {
   const [tenantId, setTenantId] = useState<string | null>(null)
+  const [notFound, setNotFound] = useState(false)
   useEffect(() => {
     const sb = createClient()
     sb.auth.getUser().then(({ data }) => {
-      if (data.user) {
-        sb.from('profiles').select('tenant_id').eq('id', data.user.id).single()
-          .then(({ data: p }) => setTenantId(p?.tenant_id ?? null))
-      }
+      if (!data.user) { setNotFound(true); return }
+      sb.from('profiles').select('tenant_id').eq('id', data.user.id).maybeSingle()
+        .then(({ data: p }) => {
+          if (p?.tenant_id) setTenantId(p.tenant_id)
+          else setNotFound(true)
+        })
     })
   }, [])
-  return tenantId
+  return { tenantId, notFound }
 }
 
 // ─── Catégories tab ───────────────────────────────────────────────────────────
@@ -245,8 +248,14 @@ const NAV: { section: string; items: { id: TabId; label: string }[] }[] = [
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function SettingsClient() {
-  const tenantId = useTenantId()
+  const { tenantId, notFound } = useTenantId()
   const [tab, setTab] = useState<TabId>('school')
+
+  if (notFound) return (
+    <div className="p-8 text-sm text-red-600">
+      Profil introuvable pour ce compte. Reconnectez-vous avec un compte valide.
+    </div>
+  )
 
   if (!tenantId) return (
     <div className="flex items-center gap-2 text-sm text-gray-500 p-8">
@@ -256,9 +265,9 @@ export default function SettingsClient() {
   )
 
   return (
-    <div className="flex h-full">
+    <div className="flex min-h-full">
       {/* Left sidebar nav */}
-      <aside className="w-52 shrink-0 border-r border-gray-200 bg-gray-50 p-4 space-y-5 overflow-y-auto">
+      <aside className="w-52 shrink-0 border-r border-gray-200 bg-gray-50 p-4 space-y-5">
         {NAV.map(({ section, items }) => (
           <div key={section}>
             <p className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{section}</p>
@@ -266,6 +275,7 @@ export default function SettingsClient() {
               {items.map(({ id, label }) => (
                 <button
                   key={id}
+                  type="button"
                   onClick={() => setTab(id)}
                   className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                     tab === id
@@ -282,7 +292,7 @@ export default function SettingsClient() {
       </aside>
 
       {/* Right panel */}
-      <main className="flex-1 overflow-y-auto p-8">
+      <div className="flex-1 p-8">
         {tab === 'school'      && <SchoolTab tenantId={tenantId} />}
         {tab === 'years'       && <AcademicYearsTab tenantId={tenantId} />}
         {tab === 'semestres'   && <SemestresTab tenantId={tenantId} />}
@@ -293,7 +303,7 @@ export default function SettingsClient() {
         {tab === 'enseignants' && <EnseignantsTab tenantId={tenantId} />}
         {tab === 'categories'  && <CategoriesTab tenantId={tenantId} />}
         {tab === 'users'       && <UsersTab tenantId={tenantId} />}
-      </main>
+      </div>
     </div>
   )
 }
