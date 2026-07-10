@@ -76,7 +76,7 @@ def get_unpaid_students(class_id: str | None, overdue_only: bool, ctx: AgentCont
     query = client.table("payment_items") \
         .select("""
             id, amount, due_date, status,
-            students!inner(id, first_name, last_name),
+            students!fk_payment_items_student_id(id, first_name, last_name),
             classes!inner(id, name)
         """) \
         .eq("tenant_id", ctx.tenant_id) \
@@ -130,7 +130,7 @@ async def propose_payment_record(
     client = get_supabase_client_for_user(ctx.user_jwt)
 
     item = client.table("payment_items") \
-        .select("id, amount, paid_amount, remaining_amount, students!inner(first_name, last_name)") \
+        .select("id, amount, paid_amount, remaining_amount, students!fk_payment_items_student_id(first_name, last_name)") \
         .eq("id", payment_item_id) \
         .eq("tenant_id", ctx.tenant_id) \
         .single().execute().data
@@ -199,7 +199,7 @@ def get_recovery_rate(
     client = get_supabase_client_for_user(ctx.user_jwt)
 
     query = client.table("payment_items") \
-        .select("id, amount, paid_amount, remaining_amount, status, due_date, students!inner(id, first_name, last_name, class_id)") \
+        .select("id, amount, paid_amount, remaining_amount, status, due_date, students!fk_payment_items_student_id(id, first_name, last_name, class_id)") \
         .eq("tenant_id", ctx.tenant_id) \
         .eq("item_type", "schedule") \
         .neq("status", "cancelled")
