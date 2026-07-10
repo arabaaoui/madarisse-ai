@@ -55,8 +55,8 @@ def get_pending_enrollments(ctx: AgentContext) -> list[dict]:
     result = client.table("enrollments") \
         .select("""
             id, status, enrollment_fee, tuition_fee, new_class, created_at,
-            students!inner(first_name, last_name),
-            academic_years!inner(year)
+            academic_year_id,
+            students!inner(first_name, last_name)
         """) \
         .eq("tenant_id", ctx.tenant_id) \
         .eq("status", "pending") \
@@ -70,7 +70,7 @@ def get_pending_enrollments(ctx: AgentContext) -> list[dict]:
             "id": r["id"],
             "student_name": f"{r['students']['first_name']} {r['students']['last_name']}",
             "class_name": r.get("new_class"),
-            "academic_year": r["academic_years"]["year"],
+            "academic_year_id": r.get("academic_year_id"),
             "enrollment_fee": r["enrollment_fee"],
             "tuition_fee": r["tuition_fee"],
             "created_at": r["created_at"],
