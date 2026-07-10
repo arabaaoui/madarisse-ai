@@ -149,15 +149,31 @@ async def _propose_enrollment_create_impl(
 ) -> dict:
     client = get_supabase_client_for_user(ctx.user_jwt)
 
-    # Resolve class name → UUID
+    # Resolve class name → UUID : exact match d'abord, puis fuzzy
+    name = class_name.strip()
     class_result = client.table("classes") \
         .select("id, name") \
         .eq("tenant_id", ctx.tenant_id) \
-        .ilike("name", class_name.strip()) \
+        .ilike("name", name) \
         .limit(1) \
         .execute()
     if not class_result.data:
-        return {"error": f"Classe '{class_name}' introuvable. Vérifiez le nom exact."}
+        # Fuzzy : contient le nom saisi
+        class_result = client.table("classes") \
+            .select("id, name") \
+            .eq("tenant_id", ctx.tenant_id) \
+            .ilike("name", f"%{name}%") \
+            .limit(1) \
+            .execute()
+    if not class_result.data:
+        # Retourner les classes disponibles pour aider l'agent
+        all_classes = client.table("classes").select("name") \
+            .eq("tenant_id", ctx.tenant_id).order("name").execute()
+        available = [c["name"] for c in (all_classes.data or [])]
+        return {
+            "error": f"Classe '{class_name}' introuvable.",
+            "available_classes": available,
+        }
     class_ = class_result.data[0]
     class_id = class_["id"]
 
