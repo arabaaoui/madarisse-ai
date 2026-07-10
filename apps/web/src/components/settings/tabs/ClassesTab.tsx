@@ -112,8 +112,8 @@ export default function ClassesTab({ tenantId }: { tenantId: string }) {
                   {c.name_ar && <span className="ml-2 text-gray-400 text-xs" dir="rtl">{c.name_ar}</span>}
                 </td>
                 <td className="py-2 text-gray-600">{c.level ?? '—'}</td>
-                <td className="py-2">{c.enrollment_fee.toLocaleString()} MAD</td>
-                <td className="py-2">{c.tuition_fee.toLocaleString()} MAD</td>
+                <td className="py-2">{(c.enrollment_fee ?? 0).toLocaleString()} MAD</td>
+                <td className="py-2">{(c.tuition_fee ?? 0).toLocaleString()} MAD</td>
                 <td className="py-2">
                   <div className="flex gap-1 justify-end">
                     <button
