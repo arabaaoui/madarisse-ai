@@ -15,8 +15,11 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-    ports:
-      - "${WEB_PORT:-3000}:3000"
+    expose:
+      - "3000"
+    networks:
+      - default
+      - coolify
     environment:
       NODE_ENV: production
       SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
@@ -77,3 +80,5 @@ services:
 networks:
   default:
     name: madarisse-ai
+  coolify:
+    external: true
