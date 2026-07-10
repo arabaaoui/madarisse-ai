@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   if (!student) return NextResponse.json({ error: '\u00c9l\u00e8ve introuvable' }, { status: 404 })
 
-  const { data: items } = await supabase
+  const { data: items, error: itemsError } = await supabase
     .from('payment_items')
     .select(`
       id, item_type, amount, paid_amount, remaining_amount, status, due_date,
@@ -32,6 +32,8 @@ export async function GET(req: NextRequest) {
     .eq('tenant_id', tenantId)
     .neq('status', 'cancelled')
     .order('due_date', { ascending: true })
+
+  if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 })
 
   const today = new Date().toISOString().slice(0, 10)
 
