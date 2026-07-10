@@ -209,23 +209,21 @@ class SchoolAgent:
                             fc = part.function_call
                             call_id = str(fc.id) if fc.id else str(_uuid.uuid4())
                             _call_id_map[str(fc.id or fc.name)] = call_id
-                            args = dict(fc.args) if fc.args else {}
                             yield sse({
-                                "type": "tool-call",
+                                "type": "tool-input-available",
                                 "toolCallId": call_id,
                                 "toolName": fc.name,
-                                "args": args,
+                                "input": dict(fc.args) if fc.args else {},
                             })
 
                         elif hasattr(part, "function_response") and part.function_response:
                             fr = part.function_response
                             call_id = _call_id_map.get(str(fr.id or fr.name), str(_uuid.uuid4()))
-                            result = fr.response if isinstance(fr.response, dict) else {"result": fr.response}
+                            output = fr.response if isinstance(fr.response, dict) else {"result": fr.response}
                             yield sse({
-                                "type": "tool-result",
+                                "type": "tool-output-available",
                                 "toolCallId": call_id,
-                                "toolName": fr.name,
-                                "result": result,
+                                "output": output,
                             })
 
         except Exception as e:

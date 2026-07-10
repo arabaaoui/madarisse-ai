@@ -136,7 +136,7 @@ export function AssistantPanel({ userId }: Props) {
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg: UIMessage) => {
           const textParts = msg.parts.filter((p) => p.type === 'text')
-          const toolParts = msg.parts.filter((p) => p.type === 'tool-invocation')
+          const toolParts = msg.parts.filter((p) => p.type === 'dynamic-tool')
           const content = textParts.map((p) => (p as { type: 'text'; text: string }).text).join('')
 
           return (
@@ -244,7 +244,8 @@ function ActionCanvas({ invocation }: { invocation: any }) {
   const [actionStatus, setActionStatus] = useState<'pending' | 'confirmed' | 'cancelled'>('pending')
   const [loading, setLoading] = useState(false)
 
-  const result = invocation?.toolInvocation?.result ?? invocation?.result
+  // AI SDK v6 : DynamicToolUIPart → state:'output-available' → .output
+  const result = invocation?.output ?? invocation?.toolInvocation?.result ?? invocation?.result
   if (!result?.action_log_id) return null
 
   if (actionStatus !== 'pending') return (
