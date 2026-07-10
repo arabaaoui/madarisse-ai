@@ -71,7 +71,7 @@ export function MessagerieClient() {
     sb.auth.getUser().then(({ data }) => {
       if (data.user) {
         setCurrentUserId(data.user.id)
-        sb.from('profiles').select('tenant_id').eq('id', data.user.id).single()
+        sb.from('profiles').select('tenant_id').eq('id', data.user.id).maybeSingle()
           .then(({ data: p }) => {
             if (p?.tenant_id) {
               setTenantId(p.tenant_id)

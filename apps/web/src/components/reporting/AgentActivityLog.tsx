@@ -46,7 +46,7 @@ function useTenantId() {
     const sb = createClient()
     sb.auth.getUser().then(({ data }) => {
       if (data.user) {
-        sb.from('profiles').select('tenant_id').eq('id', data.user.id).single()
+        sb.from('profiles').select('tenant_id').eq('id', data.user.id).maybeSingle()
           .then(({ data: p }) => setTenantId(p?.tenant_id ?? null))
       }
     })
