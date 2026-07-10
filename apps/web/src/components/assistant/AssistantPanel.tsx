@@ -24,24 +24,26 @@ const WELCOME_MESSAGE: UIMessage = {
   metadata: undefined,
 }
 
-const STORAGE_KEY = 'madarisse_chat_messages'
+function storageKey(userId: string) {
+  return `madarisse_chat_${userId}`
+}
 
-function loadMessages(): UIMessage[] {
+function loadMessages(userId: string): UIMessage[] {
   if (typeof window === 'undefined') return [WELCOME_MESSAGE]
   try {
-    const saved = localStorage.getItem(STORAGE_KEY)
+    const saved = localStorage.getItem(storageKey(userId))
     return saved ? (JSON.parse(saved) as UIMessage[]) : [WELCOME_MESSAGE]
   } catch {
     return [WELCOME_MESSAGE]
   }
 }
 
-export function AssistantPanel({ userId: _userId }: Props) {
+export function AssistantPanel({ userId }: Props) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const pathname = usePathname()
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [savedMessages] = useState<UIMessage[]>(loadMessages)
+  const [savedMessages] = useState<UIMessage[]>(() => loadMessages(userId))
 
   const activeModule = pathname.split('/')[1] || 'dashboard'
 
@@ -58,12 +60,12 @@ export function AssistantPanel({ userId: _userId }: Props) {
 
   const isLoading = status === 'submitted' || status === 'streaming'
 
-  // Persiste les messages dans localStorage
+  // Persiste les messages dans localStorage (clé isolée par userId)
   useEffect(() => {
     if (messages.length > 1) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages))
+      localStorage.setItem(storageKey(userId), JSON.stringify(messages))
     }
-  }, [messages])
+  }, [messages, userId])
 
   // ⌘K / Ctrl+K pour ouvrir/fermer
   useEffect(() => {
@@ -114,7 +116,7 @@ export function AssistantPanel({ userId: _userId }: Props) {
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => { localStorage.removeItem(STORAGE_KEY); window.location.reload() }}
+            onClick={() => { localStorage.removeItem(storageKey(userId)); window.location.reload() }}
             className="rounded-md p-1 hover:bg-muted transition-colors text-muted-foreground"
             title="Effacer la conversation"
           >
