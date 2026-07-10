@@ -140,35 +140,16 @@ async def _dispatch_action(action_type: str, payload: dict, user_client, ctx: Ag
 
 async def _execute_enrollment_create(payload: dict, user_client, ctx: AgentContext) -> dict:
     """
-    Crée l'élève (annual_status=pending) puis l'inscription (status=pending).
-    L'élève passe 'confirmed' au premier paiement d'inscription validé.
+    Crée uniquement l'inscription en attente (status=pending, student_id=NULL).
+    Le nom du candidat est stocké dans candidate_first_name/candidate_last_name.
+    L'élève est créé lors de la validation par l'admin (enrollment.validate).
+    Le trigger payment n'est pas déclenché car student_id est NULL.
     """
-    # 1. Crée l'élève avec statut en attente
-    student_insert: dict = {
-        "tenant_id": ctx.tenant_id,
-        "first_name": payload["first_name"],
-        "last_name": payload["last_name"],
-        "class": payload.get("class_name") or "",   # colonne text NOT NULL
-        "annual_status": "pending",
-        "class_id": payload["class_id"],
-        "academic_year_id": payload["academic_year_id"],
-    }
-    for optional in ("first_name_ar", "last_name_ar", "gender", "parent_name", "phone"):
-        if payload.get(optional):
-            student_insert[optional] = payload[optional]
-    if payload.get("date_of_birth"):
-        student_insert["date_of_birth"] = payload["date_of_birth"]
-
-    student_result = user_client.table("students").insert(student_insert).execute()
-    if not student_result.data:
-        raise RuntimeError("Échec création de l'élève")
-    student = student_result.data[0]
-
-    # 2. Crée l'inscription liée à l'élève
     enrollment_result = user_client.table("enrollments").insert({
         "tenant_id": ctx.tenant_id,
-        "student_id": student["id"],
-        "new_class": payload.get("class_name") or payload.get("class_id"),
+        "candidate_first_name": payload["first_name"],
+        "candidate_last_name": payload["last_name"],
+        "new_class": payload.get("class_name"),
         "academic_year_id": payload["academic_year_id"],
         "enrollment_fee": payload.get("enrollment_fee", 0),
         "tuition_fee": payload.get("tuition_fee", 0),
@@ -176,40 +157,93 @@ async def _execute_enrollment_create(payload: dict, user_client, ctx: AgentConte
         "enrollment_type": "new",
     }).execute()
 
-    enrollment = enrollment_result.data[0] if enrollment_result.data else {}
-    logger.info("enrollment_created", student_id=student["id"], enrollment_id=enrollment.get("id"),
-                tenant_id=ctx.tenant_id)
-    return {"student": student, "enrollment": enrollment}
+    if not enrollment_result.data:
+        raise RuntimeError("Échec création de l'inscription")
+
+    enrollment = enrollment_result.data[0]
+    logger.info("enrollment_pending_created", enrollment_id=enrollment.get("id"), tenant_id=ctx.tenant_id)
+    return {"enrollment": enrollment}
 
 
 async def _execute_enrollment_validate(payload: dict, user_client, ctx: AgentContext) -> dict:
-    """Valide une inscription (status → confirmed) et génère l'échéancier."""
+    """
+    Valide des inscriptions (status → confirmed) et génère l'échéancier.
+    Pour les inscriptions agent sans student_id : crée l'élève depuis candidate_first/last_name.
+    """
     from datetime import date
     from dateutil.relativedelta import relativedelta
 
     SCHEDULE_MONTHS = 10
     enrollment_ids = payload["enrollment_ids"]
 
-    # Récupère les inscriptions pour générer les échéanciers
-    enrollments = user_client.table("enrollments") \
-        .select("id, student_id, enrollment_fee, tuition_fee") \
+    raw = user_client.table("enrollments") \
+        .select("id, student_id, enrollment_fee, tuition_fee, candidate_first_name, candidate_last_name, new_class, academic_year_id") \
         .in_("id", enrollment_ids) \
         .eq("tenant_id", ctx.tenant_id) \
         .execute().data or []
 
+    enrollments = []
+    for e in raw:
+        sid = e.get("student_id")
+
+        # Inscription créée par l'agent : student_id est NULL → créer l'élève maintenant
+        if not sid and e.get("candidate_first_name"):
+            class_id = None
+            if e.get("new_class"):
+                cls_res = user_client.table("classes") \
+                    .select("id") \
+                    .eq("tenant_id", ctx.tenant_id) \
+                    .eq("academic_year_id", e["academic_year_id"]) \
+                    .ilike("name", e["new_class"]) \
+                    .limit(1).execute()
+                if cls_res.data:
+                    class_id = cls_res.data[0]["id"]
+
+            student_insert: dict = {
+                "tenant_id": ctx.tenant_id,
+                "first_name": e["candidate_first_name"],
+                "last_name": e["candidate_last_name"],
+                "class": e.get("new_class") or "",
+                "annual_status": "pending",
+                "academic_year_id": e["academic_year_id"],
+            }
+            if class_id:
+                student_insert["class_id"] = class_id
+
+            s_res = user_client.table("students").insert(student_insert).execute()
+            if s_res.data:
+                sid = s_res.data[0]["id"]
+                user_client.table("enrollments").update({"student_id": sid}) \
+                    .eq("id", e["id"]).eq("tenant_id", ctx.tenant_id).execute()
+                logger.info("student_created_on_validate", student_id=sid, enrollment_id=e["id"])
+
+        enrollments.append({**e, "student_id": sid})
+
+    # Confirme toutes les inscriptions
     result = user_client.table("enrollments").update({"status": "confirmed"}) \
         .in_("id", enrollment_ids) \
         .eq("tenant_id", ctx.tenant_id) \
         .execute()
 
-    # Génère les payment_items pour chaque inscription validée
+    # Génère les payment_items uniquement si le trigger ne l'a pas déjà fait
     today = date.today()
     items = []
     for e in enrollments:
+        sid = e.get("student_id")
+        if not sid:
+            continue
+        # Vérifie que le trigger n'a pas déjà créé les échéances (enrollments UI)
+        existing = user_client.table("payment_items") \
+            .select("id") \
+            .eq("enrollment_id", e["id"]) \
+            .limit(1).execute()
+        if existing.data:
+            continue
+
         if (e.get("enrollment_fee") or 0) > 0:
             items.append({
                 "tenant_id": ctx.tenant_id,
-                "student_id": e["student_id"],
+                "student_id": sid,
                 "enrollment_id": e["id"],
                 "item_type": "enrollment_fee",
                 "amount": e["enrollment_fee"],
@@ -223,7 +257,7 @@ async def _execute_enrollment_validate(payload: dict, user_client, ctx: AgentCon
                 due = (today + relativedelta(months=i)).replace(day=1)
                 items.append({
                     "tenant_id": ctx.tenant_id,
-                    "student_id": e["student_id"],
+                    "student_id": sid,
                     "enrollment_id": e["id"],
                     "item_type": "schedule",
                     "amount": e["tuition_fee"],

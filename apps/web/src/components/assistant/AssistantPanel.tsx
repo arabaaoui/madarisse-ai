@@ -154,8 +154,8 @@ export function AssistantPanel({ userId }: Props) {
                 `}
               >
                 {content && <MessageContent content={content} />}
-                {msg.role === 'assistant' && toolParts.map((tool, i) => (
-                  <ActionCanvas key={i} invocation={tool} />
+                {msg.role === 'assistant' && toolParts.map((tool: any) => (
+                  <ActionCanvas key={tool.toolCallId} invocation={tool} />
                 ))}
               </div>
             </div>
