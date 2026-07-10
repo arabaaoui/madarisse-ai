@@ -54,7 +54,7 @@ Si le module actif est "inscriptions" :
   puis utilise propose_enrollment_create (HITL) — NE cherche PAS d'abord un élève existant.
   IMPORTANT : le paramètre s'appelle class_name (ex: "CM1", "CE2"), PAS class_id. Passe directement le nom de la classe.
   L'année scolaire est résolue automatiquement — ne demande pas academic_year_id.
-- Si propose_enrollment_create retourne {"error": "...", "available_classes": [...]}, affiche la liste
+- Si propose_enrollment_create retourne un champ "error" et "available_classes", affiche la liste
   des classes disponibles et demande à l'utilisateur de choisir — NE REDEMANDE PAS le même nom.
 - Pour un élève qui s'est déjà inscrit les années précédentes (renouvellement) : utilise search_student
   pour retrouver le dossier existant avant de proposer une inscription.
