@@ -10,7 +10,8 @@ from core.hitl import propose_action
 
 def search_student(query: str, ctx: AgentContext) -> list[dict]:
     """
-    Recherche un élève par nom (fuzzy search côté Supabase).
+    Recherche un élève par nom dans la table students ET dans les inscriptions
+    en attente (candidats créés par l'agent sans student_id encore).
     RLS : uniquement dans le tenant de l'utilisateur.
 
     Args:
@@ -18,11 +19,13 @@ def search_student(query: str, ctx: AgentContext) -> list[dict]:
         ctx: Contexte agent
 
     Returns:
-        Liste d'élèves correspondants (max 10)
+        Liste d'élèves/candidats correspondants (max 10).
+        type="student" → élève confirmé avec payment_items.
+        type="pending_candidate" → inscription en attente, pas encore d'élève créé.
     """
     client = get_supabase_client_for_user(ctx.user_jwt)
 
-    # Recherche insensible à la casse sur nom ou prénom
+    # 1. Recherche dans la table students
     result = client.table("students") \
         .select("id, first_name, last_name, class_id, classes(name)") \
         .eq("tenant_id", ctx.tenant_id) \
@@ -30,15 +33,40 @@ def search_student(query: str, ctx: AgentContext) -> list[dict]:
         .limit(10) \
         .execute()
 
-    return [
+    students = [
         {
             "id": r["id"],
             "name": f"{r['first_name']} {r['last_name']}",
             "class_name": r["classes"]["name"] if r.get("classes") else None,
             "class_id": r["class_id"],
+            "type": "student",
         }
         for r in (result.data or [])
     ]
+
+    # 2. Recherche dans les inscriptions en attente créées par l'agent (student_id NULL)
+    pending_result = client.table("enrollments") \
+        .select("id, candidate_first_name, candidate_last_name, new_class, academic_year_id") \
+        .eq("tenant_id", ctx.tenant_id) \
+        .eq("status", "pending") \
+        .is_("student_id", "null") \
+        .or_(f"candidate_first_name.ilike.%{query}%,candidate_last_name.ilike.%{query}%") \
+        .limit(10) \
+        .execute()
+
+    candidates = [
+        {
+            "enrollment_id": r["id"],
+            "name": f"{r.get('candidate_first_name', '')} {r.get('candidate_last_name', '')}".strip(),
+            "class_name": r.get("new_class"),
+            "type": "pending_candidate",
+            "note": "Inscription en attente de validation — l'élève sera créé à la validation. Utilisez propose_enrollment_validate avec cet enrollment_id.",
+        }
+        for r in (pending_result.data or [])
+        if r.get("candidate_first_name")
+    ]
+
+    return students + candidates
 
 
 def get_pending_enrollments(ctx: AgentContext) -> list[dict]:
@@ -55,8 +83,8 @@ def get_pending_enrollments(ctx: AgentContext) -> list[dict]:
     result = client.table("enrollments") \
         .select("""
             id, status, enrollment_fee, tuition_fee, new_class, created_at,
-            academic_year_id,
-            students!inner(first_name, last_name)
+            academic_year_id, student_id, candidate_first_name, candidate_last_name,
+            students(first_name, last_name)
         """) \
         .eq("tenant_id", ctx.tenant_id) \
         .eq("status", "pending") \
@@ -65,18 +93,26 @@ def get_pending_enrollments(ctx: AgentContext) -> list[dict]:
         .limit(50) \
         .execute()
 
-    return [
-        {
+    rows = []
+    for r in (result.data or []):
+        s = r.get("students")
+        if s:
+            student_name = f"{s['first_name']} {s['last_name']}"
+        else:
+            fn = r.get("candidate_first_name") or ""
+            ln = r.get("candidate_last_name") or ""
+            student_name = f"{fn} {ln}".strip() or "Candidat"
+        rows.append({
             "id": r["id"],
-            "student_name": f"{r['students']['first_name']} {r['students']['last_name']}",
+            "student_name": student_name,
+            "is_candidate": not bool(r.get("student_id")),
             "class_name": r.get("new_class"),
             "academic_year_id": r.get("academic_year_id"),
             "enrollment_fee": r["enrollment_fee"],
             "tuition_fee": r["tuition_fee"],
             "created_at": r["created_at"],
-        }
-        for r in (result.data or [])
-    ]
+        })
+    return rows
 
 
 async def propose_enrollment_create(
@@ -271,21 +307,27 @@ async def propose_enrollment_validate(
 
     client = get_supabase_client_for_user(ctx.user_jwt)
 
-    # Récupère les détails pour le canvas
+    # Récupère les détails pour le canvas (LEFT JOIN pour inclure les candidats agent)
     enrollments_data = client.table("enrollments") \
-        .select("id, new_class, students!inner(first_name, last_name)") \
+        .select("id, new_class, student_id, candidate_first_name, candidate_last_name, students(first_name, last_name)") \
         .in_("id", enrollment_ids) \
         .eq("tenant_id", ctx.tenant_id) \
         .execute().data or []
 
-    previews = [
-        {
+    previews = []
+    for e in enrollments_data:
+        s = e.get("students")
+        if s:
+            student_name = f"{s['first_name']} {s['last_name']}"
+        else:
+            fn = e.get("candidate_first_name") or ""
+            ln = e.get("candidate_last_name") or ""
+            student_name = f"{fn} {ln}".strip() or "Candidat"
+        previews.append({
             "id": e["id"],
-            "student_name": f"{e['students']['first_name']} {e['students']['last_name']}",
+            "student_name": student_name,
             "class_name": e.get("new_class"),
-        }
-        for e in enrollments_data
-    ]
+        })
 
     payload = {
         "enrollment_ids": enrollment_ids,

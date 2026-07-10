@@ -76,8 +76,7 @@ def get_unpaid_students(class_id: str | None, overdue_only: bool, ctx: AgentCont
     query = client.table("payment_items") \
         .select("""
             id, amount, due_date, status,
-            students!fk_payment_items_student_id(id, first_name, last_name),
-            classes!inner(id, name)
+            students!fk_payment_items_student_id(id, first_name, last_name, class, class_id)
         """) \
         .eq("tenant_id", ctx.tenant_id) \
         .eq("item_type", "schedule") \
@@ -97,12 +96,13 @@ def get_unpaid_students(class_id: str | None, overdue_only: bool, ctx: AgentCont
         {
             "student_id": r["students"]["id"],
             "student_name": f"{r['students']['first_name']} {r['students']['last_name']}",
-            "class_name": r["classes"]["name"],
+            "class_name": (r["students"].get("class") or ""),
             "amount_due": r["amount"],
             "due_date": r["due_date"],
             "status": r["status"],
         }
         for r in (result.data or [])
+        if r.get("students")
     ]
 
 

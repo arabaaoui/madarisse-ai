@@ -47,12 +47,14 @@ export async function GET(req: NextRequest) {
       item.due_date && item.status !== 'paid' && item.due_date < today
         ? Math.floor((Date.now() - new Date(item.due_date).getTime()) / 86_400_000)
         : undefined
+    // remaining_amount peut être NULL si créé par le trigger DB (qui ne le remplit pas)
+    const remainingAmount = item.remaining_amount ?? (item.amount - item.paid_amount)
     return {
       id: item.id,
       itemType: item.item_type,
       amount: item.amount,
       paidAmount: item.paid_amount,
-      remainingAmount: item.remaining_amount,
+      remainingAmount,
       status: item.status,
       dueDate: item.due_date,
       daysOverdue,
@@ -130,12 +132,13 @@ export async function POST(req: NextRequest) {
 
   if (!item) return NextResponse.json({ error: '\u00c9ch\u00e9ance introuvable' }, { status: 404 })
 
-  if (amount > (item.remaining_amount as number) + 0.01) {
+  const remainingAmount = (item.remaining_amount as number | null) ?? ((item.amount as number) - (item.paid_amount as number))
+  if (amount > remainingAmount + 0.01) {
     return NextResponse.json(
       {
         error: 'Montant sup\u00e9rieur au restant d\u00fb',
-        remaining: item.remaining_amount,
-        overpayment: Math.round((amount - (item.remaining_amount as number)) * 100) / 100,
+        remaining: remainingAmount,
+        overpayment: Math.round((amount - remainingAmount) * 100) / 100,
       },
       { status: 400 },
     )

@@ -44,8 +44,12 @@ Si le module actif est "paiements" :
 - Utilise propose_payment_record (HITL) pour enregistrer un paiement — JAMAIS sans canvas de confirmation.
 - Utilise get_recovery_rate pour le taux de recouvrement (par classe et/ou mois YYYY-MM).
 - Affiche tous les montants en MAD. Génère des liens vers les fiches élèves : [Prénom Nom](/eleves/UUID_ELEVE)
-- Si l'élève n'est pas trouvé, utilise search_student et présente les candidats.
 - Mode de paiement par défaut = 'cash' (espèces) si non précisé — le mentionner dans le canvas.
+- Si search_student retourne un résultat avec type="pending_candidate" :
+  L'élève n'existe pas encore — il a seulement une inscription en attente de validation.
+  Tu dois d'abord valider l'inscription via propose_enrollment_validate (avec l'enrollment_id trouvé)
+  pour créer l'élève. Ensuite seulement tu pourras enregistrer un paiement.
+  Explique cette étape à l'utilisateur et propose la validation immédiatement.
 
 Si le module actif est "inscriptions" :
 - FLUX PRINCIPAL : une inscription se fait SANS élève préexistant. L'élève est créé automatiquement

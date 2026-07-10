@@ -241,13 +241,24 @@ function MessageContent({ content }: { content: string }) {
  * Affiché dans le fil quand l'agent propose une action qui demande validation.
  */
 function ActionCanvas({ invocation }: { invocation: any }) {
-  const [actionStatus, setActionStatus] = useState<'pending' | 'confirmed' | 'cancelled'>('pending')
+  // AI SDK v6 : DynamicToolUIPart → state:'output-available' → .output
+  const result = invocation?.output ?? invocation?.toolInvocation?.result ?? invocation?.result
+  const logId = result?.action_log_id as string | undefined
+
+  // Persiste le statut dans localStorage pour survivre aux refreshs
+  const [actionStatus, setActionStatus] = useState<'pending' | 'confirmed' | 'cancelled'>(() => {
+    if (!logId || typeof window === 'undefined') return 'pending'
+    return (localStorage.getItem(`hitl_status_${logId}`) as any) ?? 'pending'
+  })
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  // AI SDK v6 : DynamicToolUIPart → state:'output-available' → .output
-  const result = invocation?.output ?? invocation?.toolInvocation?.result ?? invocation?.result
-  if (!result?.action_log_id) return null
+  if (!logId) return null
+
+  const persistStatus = (s: 'confirmed' | 'cancelled') => {
+    setActionStatus(s)
+    localStorage.setItem(`hitl_status_${logId}`, s)
+  }
 
   if (actionStatus !== 'pending') return (
     <div className={`mt-2 text-xs rounded p-2 ${actionStatus === 'confirmed' ? 'bg-green-100 text-green-800' : 'bg-muted text-muted-foreground'}`}>
@@ -264,13 +275,15 @@ function ActionCanvas({ invocation }: { invocation: any }) {
       const res = await fetch('/api/agent/action/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action_log_id: result.action_log_id }),
+        body: JSON.stringify({ action_log_id: logId }),
       })
       if (res.ok) {
-        setActionStatus('confirmed')
+        persistStatus('confirmed')
       } else {
         const data = await res.json().catch(() => ({}))
-        setErrorMsg(data?.detail || `Erreur ${res.status}`)
+        // 409 = déjà confirmé par quelqu'un d'autre
+        if (res.status === 409) persistStatus('confirmed')
+        else setErrorMsg(data?.detail || `Erreur ${res.status}`)
       }
     } catch {
       setErrorMsg('Impossible de joindre le service.')
@@ -282,12 +295,13 @@ function ActionCanvas({ invocation }: { invocation: any }) {
     setLoading(true)
     setErrorMsg(null)
     try {
-      await fetch('/api/agent/action/cancel', {
+      const res = await fetch('/api/agent/action/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action_log_id: result.action_log_id }),
+        body: JSON.stringify({ action_log_id: logId }),
       })
-      setActionStatus('cancelled')
+      if (res.ok || res.status === 409) persistStatus('cancelled')
+      else setErrorMsg(`Erreur ${res.status}`)
     } catch {
       setErrorMsg('Impossible de joindre le service.')
     }
