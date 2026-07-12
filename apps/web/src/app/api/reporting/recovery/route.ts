@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getTenantId } from '@/lib/supabase/tenant'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: { session } } = await supabase.auth.getSession()
-  const tenantId = session?.user?.user_metadata?.tenant_id
+  const tenantId = await getTenantId(supabase, user.id)
   if (!tenantId) return NextResponse.json({ error: 'Tenant introuvable' }, { status: 403 })
 
   const classId = req.nextUrl.searchParams.get('class_id') ?? undefined

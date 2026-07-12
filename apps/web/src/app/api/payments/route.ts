@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getTenantId } from '@/lib/supabase/tenant'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -9,8 +10,7 @@ export async function GET(req: NextRequest) {
   const studentId = req.nextUrl.searchParams.get('student_id')
   if (!studentId) return NextResponse.json({ error: 'student_id requis' }, { status: 400 })
 
-  const { data: { session } } = await supabase.auth.getSession()
-  const tenantId = session?.user?.user_metadata?.tenant_id
+  const tenantId = await getTenantId(supabase, user.id)
   if (!tenantId) return NextResponse.json({ error: 'Tenant introuvable' }, { status: 403 })
 
   const { data: student } = await supabase
@@ -88,8 +88,7 @@ export async function POST(req: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: { session } } = await supabase.auth.getSession()
-  const tenantId = session?.user?.user_metadata?.tenant_id
+  const tenantId = await getTenantId(supabase, user.id)
   if (!tenantId) return NextResponse.json({ error: 'Tenant introuvable' }, { status: 403 })
 
   const body = await req.json() as {
